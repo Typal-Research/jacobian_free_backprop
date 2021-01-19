@@ -1,6 +1,14 @@
 # Learned Fixed Point Networks
 
 
+Please cite as
+    
+    @article{????2020learned,
+        title={Learned Fixed Point Networks},
+        author={????},
+        journal={arXiv preprint arXiv:????.?????},
+        year={2021}}
+
 _Temporary Section_
 
 Code for reference:
