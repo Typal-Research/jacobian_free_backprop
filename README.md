@@ -25,7 +25,7 @@ Compatible with python 3.5+ and known to work with pytorch 1.4, torchvision 0.5,
 
 [LFPN-MNIST-CNN](https://colab.research.google.com/drive/15moVLDZCt6R2tObV9YuRF3xWENOhVWs2#scrollTo=1FmfvE_2grxL)
 
-[LFPN-CIFAR10](https://colab.research.google.com/drive/1OfLRtNFjNwZ5oli0gX4GUiEFWstKozpz#scrollTo=B6ZbS14yh_Ak)
+[LFPN-CIFAR10](https://colab.research.google.com/drive/18IMT-VCISDfnNJhgletvRsHrRfFc0a9x#scrollTo=kvzFjFyifcla)
 
 
 
