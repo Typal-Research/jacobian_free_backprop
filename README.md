@@ -3,7 +3,7 @@
 
 ## Associated Publication
 
-_Learned Fixed Point Networks_ (**[arXiv Link](https://arxiv.org/abs/????.?????)**)
+_Learned Fixed Point Networks: Implicit Depth with Easy Backprop_ (**[arXiv Link](https://arxiv.org/abs/????.?????)**)
 
     @article{????2020learned,
         title={Learned Fixed Point Networks},
