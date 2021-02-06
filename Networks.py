@@ -10,32 +10,36 @@ class MNIST_FCN(nn.Module):
         self.fc_y = nn.Linear(dim_hid, dim_out, bias=True)
         self.fc_u = nn.Linear(dim_out, dim_out, bias=False)
         self.relu = nn.ReLU()
-        # Initialize fully connected (fc) layers to have unit singular values
-        self.fc_d.weight.data = self.proj(self.fc_d.weight.data, low_s_val=1.0)
-        self.fc_m.weight.data = self.proj(self.fc_m.weight.data, low_s_val=1.0)
-        self.fc_y.weight.data = self.proj(self.fc_y.weight.data, low_s_val=1.0)
-        self.fc_u.weight.data = self.proj(self.fc_u.weight.data, low_s_val=1.0)        
+        self.project_weights(s_lo=1.0)
 
     def forward(self, u, d=None):
         y = self.relu(self.fc_d(d.float()))
         y = self.relu(self.fc_m(y))
-        return torch.clamp(0.1 * self.fc_u(u.float()) + 0.9 * self.fc_y(y),
+        return torch.clamp(0.5 * self.fc_u(u.float()) + 0.5 * self.fc_y(y),
                            min=0, max=1.0)
 
-    def project_weights(self):
+    def project_weights(self, s_lo=0.0):
         """ All linear maps must yield 1-Lipschitz operators,
             which is accomplished by bounding all singular values
-            by unity
+            by unity. It is easier to train starting from unit
+            singular values everywhere and projecting the singular values
+            periodically (as opposed to after every optimizer step)
         """
-        self.fc_d.weight.data = self.proj(self.fc_d.weight.data)
-        self.fc_m.weight.data = self.proj(self.fc_m.weight.data)
-        self.fc_u.weight.data = self.proj(self.fc_u.weight.data)
-        self.fc_y.weight.data = self.proj(self.fc_y.weight.data)
+        self.fc_d.weight.data = self.proj_sing_val(self.fc_d.weight.data, s_lo)
+        self.fc_m.weight.data = self.proj_sing_val(self.fc_m.weight.data, s_lo)
+        self.fc_u.weight.data = self.proj_sing_val(self.fc_u.weight.data, s_lo)
+        self.fc_y.weight.data = self.proj_sing_val(self.fc_y.weight.data, s_lo)
 
-    def proj(self, Ak, low_s_val=0.0):
+    def proj_sing_val(self, Ak, s_lo=0.0):
+        """ Project singular values of matrices onto interval [s_low, 1.0].
+            We use relaxed-projections (soft enforcement) to help training,
+            which yields singular values bounded by unity once the optimizer
+            steps start to become small (i.e., near convergence to local
+            minimum).
+        """
         u, s, v = torch.svd(Ak)
         s[s > 1.0] *= 0.99
-        s[s < low_s_val] = low_s_val
+        s[s < s_lo] = s_lo
         return torch.mm(torch.mm(u, torch.diag(s)), v.t())
 
 
@@ -46,14 +50,12 @@ class MNIST_CNN(nn.Module):
         self.relu = nn.ReLU()
         self.fc_u = nn.Linear(hid_dim, hid_dim, bias=False)
         self.fc_y = nn.Linear(1600,    hid_dim, bias=False)
-        # Initialize fully connected (fc) layers to have unit singular values
-        self.fc_u.weight.data = self.proj(self.fc_u.weight.data, low_s_val=1.0)
-        self.fc_y.weight.data = self.proj(self.fc_y.weight.data, low_s_val=1.0)
+        self.project_weights(s_lo=1.0)
         self.conv1 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=1,
-                                                            out_channels=80,
+                                                            out_channels=85,
                                                             kernel_size=3,
                                                             stride=1))
-        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=80,
+        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=85,
                                                             out_channels=64,
                                                             kernel_size=3,
                                                             stride=1))
@@ -61,18 +63,22 @@ class MNIST_CNN(nn.Module):
     def forward(self, u, d):
         y = self.avgpool(self.relu(self.conv1(d)))
         y = self.avgpool(self.relu(self.conv2(y))).view(d.shape[0], -1)
-        return 0.1 * self.fc_u(u) + 0.9 * self.fc_y(y)
+        return 0.5 * self.fc_u(u) + 0.5 * self.fc_y(y)
 
-    def project_weights(self):
+    def project_weights(self, s_lo=0.0):
         """ All linear maps must yield 1-Lipschitz operators,
             which is accomplished by bounding all singular values
-            by unity
+            by unity. It is easier to train starting from unit
+            singular values everywhere and projecting the singular values
+            periodically (as opposed to after every optimizer step)
         """
-        self.fc_u.weight.data = self.proj(self.fc_u.weight.data)
-        self.fc_y.weight.data = self.proj(self.fc_y.weight.data)
+        self.fc_u.weight.data = self.proj_sing_val(self.fc_u.weight.data, s_lo)
+        self.fc_y.weight.data = self.proj_sing_val(self.fc_y.weight.data, s_lo)
 
-    def proj(self, Ak, low_s_val=0.1):
+    def proj_sing_val(self, Ak, s_lo=0.0):
+        """ Project singular values of matrices onto interval [s_low, 1.0].
+        """
         u, s, v = torch.svd(Ak)
-        s[s > 1.0] *= 0.99
-        s[s < low_s_val] = low_s_val
+        s[s > 1.0] = 1.0
+        s[s < s_lo] = s_lo
         return torch.mm(torch.mm(u, torch.diag(s)), v.t())

@@ -21,7 +21,7 @@ class KM_alg():
     """
     def __init__(self, S, T, alpha: float, device,
                  max_depth=200, eps=1.0e-5):
-        self._alpha = alpha
+        self.alpha = alpha
         self._S = S
         self._T = T
         self.max_depth = max_depth
@@ -35,7 +35,7 @@ class KM_alg():
         output += '      default eps = %r\n'
         output += '      device      = %r\n'
         output += ')'
-        return output % (self._alpha, self.max_depth,
+        return output % (self.alpha, self.max_depth,
                          self.eps_tol, self._device)
 
     def __call__(self, u: torch.tensor,
@@ -60,9 +60,8 @@ class KM_alg():
         nc = nc.reshape((nc.shape[1]))
         with torch.no_grad():
             while nc.any() > 0 and depth < self.max_depth:
-                Tu = self._T(u, d)
                 u_prev = u.clone()
-                u = self._alpha * self._S(u) + (1-self._alpha) * Tu
+                u = self.alpha * self._S(u) + (1 - self.alpha) * self._T(u, d)
                 nc[nc > 0] = [torch.norm(u[i, :] - u_prev[i, :]) > eps
                               for i in indices[nc > 0]]
                 depth += 1.0
