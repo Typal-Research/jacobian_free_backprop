@@ -22,8 +22,8 @@ class KM_alg():
     def __init__(self, S, T, alpha: float, device,
                  max_depth=500, eps=1.0e-5):
         self.alpha = alpha
-        self._S = S
-        self._T = T
+        self.S = S
+        self.T = T
         self.max_depth = max_depth
         self.eps_tol = eps
         self._device = device
@@ -61,7 +61,7 @@ class KM_alg():
         with torch.no_grad():
             while nc.any() > 0 and depth < self.max_depth:
                 u_prev = u.clone()
-                u = self.alpha * self._S(u) + (1 - self.alpha) * self._T(u, d)
+                u = self.alpha * self.S(u) + (1 - self.alpha) * self.T(u, d)
                 nc[nc > 0] = [torch.norm(u[i, :] - u_prev[i, :]) > eps
                               for i in indices[nc > 0]]
                 depth += 1.0
@@ -74,10 +74,4 @@ class KM_alg():
             a single application of T. This is used for backprop rather
             than calling the KM algorithm.
         """
-        return self._T(u.detach(), d)
-
-    def assign_ops(self, S, T):
-        """ Use this to update T after every step of optimizer during training
-        """
-        self._S = S
-        self._T = T
+        return self.T(u.detach(), d)
