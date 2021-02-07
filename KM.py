@@ -20,7 +20,7 @@ class KM_alg():
         optimizer.step()
     """
     def __init__(self, S, T, alpha: float, device,
-                 max_depth=200, eps=1.0e-5):
+                 max_depth=500, eps=1.0e-5):
         self.alpha = alpha
         self._S = S
         self._T = T

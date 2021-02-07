@@ -38,7 +38,7 @@ class MNIST_FCN(nn.Module):
             minimum).
         """
         u, s, v = torch.svd(Ak)
-        s[s > 1.0] *= 0.99
+        s[s > 1.0] = 1.0
         s[s < s_lo] = s_lo
         return torch.mm(torch.mm(u, torch.diag(s)), v.t())
 
@@ -52,10 +52,10 @@ class MNIST_CNN(nn.Module):
         self.fc_y = nn.Linear(1600,    hid_dim, bias=False)
         self.project_weights(s_lo=1.0)
         self.conv1 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=1,
-                                                            out_channels=85,
+                                                            out_channels=88,
                                                             kernel_size=3,
                                                             stride=1))
-        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=85,
+        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=88,
                                                             out_channels=64,
                                                             kernel_size=3,
                                                             stride=1))
