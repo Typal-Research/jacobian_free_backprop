@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from prettytable import PrettyTable
 
 
 class KM_alg():
@@ -30,13 +31,17 @@ class KM_alg():
 
     def __repr__(self):
         output = 'KM_alg(\n'
-        output += '      alpha       = %r\n'
-        output += '      max depth   = %r\n'
-        output += '      default eps = %r\n'
-        output += '      device      = %r\n'
-        output += ')'
+        output += '          alpha: %r\n'
+        output += '      max depth: %r\n'
+        output += '    default eps: %r\n'
+        output += '         device: %r\n'
+        output += '              T: %r\n'
+        output += ')\n'
+        output += str(self.T) + '\n'
+        output += str(self.model_params()) + '\n'
         return output % (self.alpha, self.max_depth,
-                         self.eps_tol, self._device)
+                         self.eps_tol, self._device,
+                         self.T.name())
 
     def __call__(self, u: torch.tensor,
                  d: torch.tensor, eps=-1) -> torch.tensor:
@@ -75,3 +80,14 @@ class KM_alg():
             than calling the KM algorithm.
         """
         return self.T(u.detach(), d)
+
+    def model_params(self):
+        table = PrettyTable(["Network Component", "# Parameters"])
+        num_params = 0
+        for name, parameter in self.T.named_parameters():
+            if not parameter.requires_grad:
+                continue
+            table.add_row([name, parameter.numel()])
+            num_params += parameter.numel()
+        table.add_row(['TOTAL', num_params])
+        return table

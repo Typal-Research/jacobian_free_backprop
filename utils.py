@@ -1,21 +1,9 @@
 import torch
-from prettytable import PrettyTable
+
 
 from time import sleep
 import time
 from tqdm import tqdm
-
-
-def display_model_params(model: torch.tensor):
-    table = PrettyTable(["Network Component", "# Parameters"])
-    num_params = 0
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad:
-            continue
-        table.add_row([name, parameter.numel()])
-        num_params += parameter.numel()
-    print(table)
-    print(f"Total Trainable Paramseters: {num_params}")
 
 
 def test_statistics(KM, device, test_loader, batch_size, n, loss,
@@ -37,8 +25,17 @@ def test_statistics(KM, device, test_loader, batch_size, n, loss,
             u0_test[:, 0:n] = 1.0 / float(n)
             u, depth = KM(u0_test, d_test)
             y = u[:, 0:n].to(device)
+
+            if str(loss) == "MSELoss()":
+                test_loss += loss(y.double(), ut.double()).item()
+            elif str(loss) == "CrossEntropyLoss()":
+                test_loss += loss(y, labels).item()  # sum up batch loss
+            else:
+                print("Error: Invalid Loss Function")
+
+            # test_loss += loss(y.double(), ut.double()).item()
             # test_loss += loss(y, labels).item() # sum up batch loss
-            test_loss += loss(y.double(), ut.double()).item()
+
             pred = y.argmax(dim=1, keepdim=True)
             correct += pred.eq(labels.view_as(pred)).sum().item()
 
@@ -48,9 +45,9 @@ def test_statistics(KM, device, test_loader, batch_size, n, loss,
     return test_loss, test_acc, correct, depth
 
 
-def train_classification_network(KM, num_epochs, lr_scheduler, train_loader,
-                                 test_loader, device, batch_size, n, hid_size,
-                                 optimizer, loss):
+def train_class_net(KM, num_epochs, lr_scheduler, train_loader,
+                    test_loader, device, batch_size, n, hid_size,
+                    optimizer, loss):
 
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
     fmt += '{:6.2e}) | depth = {:4.1f} | lr = {:5.1e} | time = {:4.1f} sec'
@@ -59,8 +56,7 @@ def train_classification_network(KM, num_epochs, lr_scheduler, train_loader,
     depth_ave = 0.0
     train_acc = 0.0
 
-    print(KM.T, '\n', KM, '\n')
-    display_model_params(KM.T)
+    print(KM)
     print('\nTraining Fixed Point Network')
 
     for epoch in range(num_epochs):
@@ -81,13 +77,11 @@ def train_classification_network(KM, num_epochs, lr_scheduler, train_loader,
                 ut = torch.zeros((batch_size, n)).to(device)
                 for i in range(batch_size):
                     ut[i, labels[i].cpu().numpy()] = 1.0
-
                 # --------------------------------------------------------------
                 # Forward prop to fixed point
                 # --------------------------------------------------------------
                 u0 = 0.1 * torch.zeros((batch_size, hid_size)).to(device)
                 u0[:, 0:n] = 1.0 / float(n)
-                # KM.assign_ops(S, T)
                 u, depth = KM(u0, d)
                 depth_ave = 0.95 * depth_ave + 0.05 * depth
                 # -------------------------------------------------------------
@@ -96,7 +90,7 @@ def train_classification_network(KM, num_epochs, lr_scheduler, train_loader,
                 optimizer.zero_grad()
                 y = KM.apply_T(u.float().to(device), d)[:, 0:n]
 
-                output = loss(y.double(), ut.double())
+                output = 0
                 if str(loss) == "MSELoss()":
                     output = loss(y.double(), ut.double())
                 elif str(loss) == "CrossEntropyLoss()":
@@ -121,15 +115,15 @@ def train_classification_network(KM, num_epochs, lr_scheduler, train_loader,
         # ---------------------------------------------------------------------
         # Save weights every 10 epochs
         # ---------------------------------------------------------------------
-        if epoch % 10 == 0:
-            # create dictionary saving all required parameters:
+        if (epoch + 1) % 10 == 0:
             state = {
-                'Tnet_state_dict': KM.T.state_dict(),
-                # 'test_loss_hist': test_loss_hist,
-                # 'test_acc_hist': test_acc_hist,
-                # 'depth_test_hist': depth_test_hist
+                'eps': KM.eps_tol,
+                'max depth': KM.max_depth,
+                'alpha': KM.alpha,
+                'T_state_dict': KM.T.state_dict(),
             }
-            torch.save(state, KM.T.name() + '-weights.pth')
+            torch.save(state, 'KM-' + KM.T.name() + '-weights.pth')
+            print('Model weights saved to KM-' + KM.T.name() + 'weights.pth')
 
         test_loss, test_acc, correct, depth_test = test_statistics(KM,
                                                                    device,

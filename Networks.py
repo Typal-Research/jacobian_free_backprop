@@ -18,8 +18,7 @@ class MNIST_FCN(nn.Module):
     def forward(self, u, d=None):
         y = self.relu(self.fc_d(d.float()))
         y = self.relu(self.fc_m(y))
-        return torch.clamp(0.1 * self.fc_u(u.float()) + 0.9 * self.fc_y(y),
-                           min=0, max=1.0)
+        return torch.abs(0.5 * self.fc_u(u.float()) + 0.5 * self.fc_y(y))
 
     def project_weights(self, s_lo=0.0):
         """ All linear maps must yield 1-Lipschitz operators,
@@ -63,7 +62,7 @@ class MNIST_CNN(nn.Module):
     def forward(self, u, d):
         y = self.avgpool(self.relu(self.conv1(d)))
         y = self.avgpool(self.relu(self.conv2(y))).view(d.shape[0], -1)
-        return 0.1 * self.fc_u(u) + 0.9 * self.fc_y(y)
+        return torch.abs(0.1 * self.fc_u(u) + 0.9 * self.fc_y(y))
 
     def project_weights(self, s_lo=0.0):
         """ All linear maps must yield 1-Lipschitz operators,
