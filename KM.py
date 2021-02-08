@@ -54,7 +54,7 @@ class KM_alg():
                   until every sample converges, unless we hit the
                   max depth/number of iterations.
         """
-
+        self.T.eval()
         eps = eps if eps > 0 else self.eps_tol
         depth = 0.0
         u_prev = u.clone()
@@ -72,6 +72,7 @@ class KM_alg():
                 depth += 1.0
         if depth >= self.max_depth:
             print("KM: Max Depth Reached - Break Forward Loop")
+        self.T.train()
         return u.to(self._device), depth
 
     def apply_T(self, u: torch.tensor, d: torch.tensor) -> torch.tensor:
@@ -79,6 +80,7 @@ class KM_alg():
             a single application of T. This is used for backprop rather
             than calling the KM algorithm.
         """
+        self.T.train()
         return self.T(u.detach(), d)
 
     def model_params(self):

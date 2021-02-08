@@ -14,14 +14,14 @@ def test_statistics(KM, device, test_loader, batch_size, n, loss,
         for d_test, labels in test_loader:
             labels = labels.to(device)
             d_test = d_test.to(device)
-            if KM.T.name() == "MNIST-FCN":
-                d_test = d_test.view(batch_size, 784).to(device)
+            if KM.T.name() == "MNIST_FCN":
+                d_test = d_test.view(d_test.size()[0], 784).to(device)
 
-            ut = torch.zeros((batch_size, n)).to(device)
-            for i in range(batch_size):
+            ut = torch.zeros((d_test.size()[0], n)).to(device)
+            for i in range(d_test.size()[0]):
                 ut[i, labels[i].cpu().numpy()] = 1.0
 
-            u0_test = 0.1 * torch.zeros((batch_size, hid_size)).to(device)
+            u0_test = 0.1 * torch.zeros((d_test.size()[0], hid_size)).to(device)
             u0_test[:, 0:n] = 1.0 / float(n)
             u, depth = KM(u0_test, d_test)
             y = u[:, 0:n].to(device)
@@ -32,9 +32,6 @@ def test_statistics(KM, device, test_loader, batch_size, n, loss,
                 test_loss += loss(y, labels).item()  # sum up batch loss
             else:
                 print("Error: Invalid Loss Function")
-
-            # test_loss += loss(y.double(), ut.double()).item()
-            # test_loss += loss(y, labels).item() # sum up batch loss
 
             pred = y.argmax(dim=1, keepdim=True)
             correct += pred.eq(labels.view_as(pred)).sum().item()
@@ -62,8 +59,8 @@ def train_class_net(KM, num_epochs, lr_scheduler, train_loader,
     for epoch in range(num_epochs):
         sleep(1.0)  # slows progress bar so it won't print on multiple lines
         epoch_start_time = time.time()
-
-        with tqdm(total=len(train_loader), unit=" batch", leave=False, ascii=True) as tepoch:
+        tot = len(train_loader)
+        with tqdm(total=tot, unit=" batch", leave=False, ascii=True) as tepoch:
 
             tepoch.set_description("[{:3d}/{:3d}]".format(epoch+1, num_epochs))
 
@@ -71,16 +68,16 @@ def train_class_net(KM, num_epochs, lr_scheduler, train_loader,
                 labels = labels.to(device)
                 d = d.to(device)
 
-                if KM.T.name() == "MNIST-FCN":
-                    d = d.view(batch_size, 784).to(device)
+                if KM.T.name() == "MNIST_FCN":
+                    d = d.view(d.size()[0], 784).to(device)
 
-                ut = torch.zeros((batch_size, n)).to(device)
-                for i in range(batch_size):
+                ut = torch.zeros((d.size()[0], n)).to(device)
+                for i in range(d.size()[0]):
                     ut[i, labels[i].cpu().numpy()] = 1.0
                 # --------------------------------------------------------------
                 # Forward prop to fixed point
                 # --------------------------------------------------------------
-                u0 = 0.1 * torch.zeros((batch_size, hid_size)).to(device)
+                u0 = 0.1 * torch.zeros((d.size()[0], hid_size)).to(device)
                 u0[:, 0:n] = 1.0 / float(n)
                 u, depth = KM(u0, d)
                 depth_ave = 0.95 * depth_ave + 0.05 * depth
@@ -112,6 +109,18 @@ def train_class_net(KM, num_epochs, lr_scheduler, train_loader,
                 tepoch.set_postfix(train_loss="{:5.2e}".format(loss_ave),
                                    train_acc="{:5.2f}%".format(train_acc),
                                    depth="{:5.1f}".format(depth_ave))
+
+        test_loss, test_acc, correct, depth_test = test_statistics(KM,
+                                                                   device,
+                                                                   test_loader,
+                                                                   batch_size,
+                                                                   n, loss,
+                                                                   hid_size)
+
+        print(fmt.format(epoch+1, num_epochs, train_acc, loss_ave,
+                         test_acc, test_loss, depth_ave,
+                         optimizer.param_groups[0]['lr'],
+                         time.time() - epoch_start_time))
         # ---------------------------------------------------------------------
         # Save weights every 10 epochs
         # ---------------------------------------------------------------------
@@ -122,19 +131,9 @@ def train_class_net(KM, num_epochs, lr_scheduler, train_loader,
                 'alpha': KM.alpha,
                 'T_state_dict': KM.T.state_dict(),
             }
-            torch.save(state, 'KM-' + KM.T.name() + '-weights.pth')
-            print('Model weights saved to KM-' + KM.T.name() + 'weights.pth')
+            torch.save(state, 'KM_' + KM.T.name() + '_weights.pth')
+            print('Model weights saved to KM_' + KM.T.name() + '_weights.pth')
 
-        test_loss, test_acc, correct, depth_test = test_statistics(KM,
-                                                                   device,
-                                                                   test_loader,
-                                                                   batch_size,
-                                                                   n, loss,
-                                                                   hid_size)
-        print(fmt.format(epoch+1, num_epochs, train_acc, loss_ave,
-                         test_acc, test_loss, depth_ave,
-                         optimizer.param_groups[0]['lr'],
-                         time.time() - epoch_start_time))
         lr_scheduler.step()
         epoch_start_time = time.time()
     return KM
