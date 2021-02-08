@@ -28,7 +28,6 @@ class KM_alg():
         self.max_depth = max_depth
         self.eps_tol = eps
         self._device = device
-        self.T.apply_T()  # Force T to perform spectral normalization
 
     def __repr__(self):
         output = 'KM_alg(\n'
@@ -55,6 +54,7 @@ class KM_alg():
                   until every sample converges, unless we hit the
                   max depth/number of iterations.
         """
+        self.apply_T(u, d)  # for spectral normalization
         self.T.eval()
         eps = eps if eps > 0 else self.eps_tol
         depth = 0.0

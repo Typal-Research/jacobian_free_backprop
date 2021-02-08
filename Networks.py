@@ -5,21 +5,20 @@ import torch.nn as nn
 class MNIST_FCN(nn.Module):
     def __init__(self, dim_out, dim_hid, device):
         super().__init__()
-        self.fc_d = nn.Linear(784,     dim_hid, bias=True)
-        self.fc_m1 = nn.Linear(dim_hid, dim_hid, bias=True)
-        self.fc_m2 = nn.Linear(dim_hid, dim_hid, bias=True)
+        self.fc_d = nn.Linear(784,     dim_out, bias=True)
+        # self.fc_m1 = nn.Linear(dim_hid, dim_hid, bias=True)
+        # self.fc_m2 = nn.Linear(dim_hid, dim_hid, bias=True)
         self.fc_y = nn.Linear(dim_hid, dim_out, bias=False)
         self.fc_u = nn.Linear(dim_out, dim_out, bias=False)
         self.relu = nn.ReLU()
-        self.drop_out = nn.Dropout(p=0.1)
 
     def name(self):
         return 'MNIST_FCN'
 
     def forward(self, u, d=None):
         y = self.relu(self.fc_d(d.float()))
-        y = self.relu(self.drop_out(self.fc_m1(y)))
-        y = 0.5 * y + 0.5 * self.relu(self.fc_m2(y))
+        # y = self.relu(self.drop_out(self.fc_m1(y)))
+        # y = 0.5 * y + 0.5 * self.relu(self.fc_m2(y))
         return 0.1 * self.fc_u(u.float()) + 0.9 * self.fc_y(y)
 
     def project_weights(self, s_lo=0.0):
@@ -28,8 +27,8 @@ class MNIST_FCN(nn.Module):
             by unity.
         """
         self.fc_d.weight.data = self.proj_sing_val(self.fc_d.weight.data, s_lo)
-        self.fc_m1.weight.data = self.proj_sing_val(self.fc_m1.weight.data, s_lo)
-        self.fc_m2.weight.data = self.proj_sing_val(self.fc_m2.weight.data, s_lo)
+        # self.fc_m1.weight.data = self.proj_sing_val(self.fc_m1.weight.data, s_lo)
+        # self.fc_m2.weight.data = self.proj_sing_val(self.fc_m2.weight.data, s_lo)
         self.fc_u.weight.data = self.proj_sing_val(self.fc_u.weight.data, s_lo)
         self.fc_y.weight.data = self.proj_sing_val(self.fc_y.weight.data, s_lo)
 
