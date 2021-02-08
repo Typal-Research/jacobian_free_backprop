@@ -11,17 +11,18 @@ class MNIST_FCN(nn.Module):
         self.fc_y = nn.Linear(dim_hid, dim_out, bias=False)
         self.fc_u = nn.Linear(dim_out, dim_out, bias=False)
         self.relu = nn.ReLU()
+        self.drop_out = nn.Dropout(p=0.1)
 
     def name(self):
         return 'MNIST_FCN'
 
     def forward(self, u, d=None):
         y = self.relu(self.fc_d(d.float()))
-        y = self.relu(self.fc_m1(y))
+        y = self.relu(self.drop_out(self.fc_m1(y)))
         y = 0.5 * y + 0.5 * self.relu(self.fc_m2(y))
         return 0.1 * self.fc_u(u.float()) + 0.9 * self.fc_y(y)
 
-    def project_weights(self, s_lo=0.9):
+    def project_weights(self, s_lo=0.0):
         """ All linear maps must yield 1-Lipschitz operators,
             which is accomplished by bounding all singular values
             by unity.
@@ -50,31 +51,30 @@ class MNIST_CNN(nn.Module):
         self.fc_f = nn.Linear(sig_dim, sig_dim, bias=False)
         self.fc_y = nn.Linear(1500,    sig_dim, bias=True)
 
-        #self.drop_out = nn.Dropout(p=0.001)
+        self.drop_out = nn.Dropout(p=0.02)
 
         self.conv1 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=1,
                                                             out_channels=90,
                                                             kernel_size=3,
                                                             stride=1),
-                                                            n_power_iterations=20)
+                                                  n_power_iterations=20)
         self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=90,
                                                             out_channels=60,
                                                             kernel_size=3,
                                                             stride=1),
-                                                            n_power_iterations=20)
+                                                  n_power_iterations=20)
 
     def name(self):
         return 'MNIST_CNN'
 
     def forward(self, u, d):
         y = self.maxpool(self.relu(self.conv1(d)))
-        #y = self.maxpool(self.drop_out(self.relu(self.conv2(y))))
-        y = self.maxpool(self.relu(self.conv2(y)))
+        y = self.maxpool(self.drop_out(self.relu(self.conv2(y))))
         y = y.view(d.shape[0], -1)
         y = self.relu(self.fc_y(y))
         return 0.1 * self.fc_u(u) + 0.9 * self.fc_f(y)
 
-    def project_weights(self, s_lo=0.5):
+    def project_weights(self, s_lo=0.1):
         """ All linear maps must yield 1-Lipschitz operators,
             which is accomplished by bounding all singular values
             by unity.

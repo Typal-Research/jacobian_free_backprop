@@ -28,6 +28,7 @@ class KM_alg():
         self.max_depth = max_depth
         self.eps_tol = eps
         self._device = device
+        self.T.apply_T()  # Force T to perform spectral normalization
 
     def __repr__(self):
         output = 'KM_alg(\n'
