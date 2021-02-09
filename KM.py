@@ -54,6 +54,7 @@ class KM_alg():
                   until every sample converges, unless we hit the
                   max depth/number of iterations.
         """
+        self.apply_T(u, d)  # for spectral normalization
         self.T.eval()
         eps = eps if eps > 0 else self.eps_tol
         depth = 0.0
