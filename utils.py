@@ -133,6 +133,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         # Save weights every 10 epochs
         # ---------------------------------------------------------------------
         if epoch % 10 == 0 and test_acc > best_test_acc:
+            best_test_acc = test_acc
             state = {
                 'eps': alg_params.eps,
                 'max depth': alg_params.depth,
