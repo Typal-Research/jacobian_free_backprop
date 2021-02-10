@@ -61,12 +61,16 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
     depth_ave = 0.0
     train_acc = 0.0
     best_test_acc = 0.0
+    
+    test_loss_hist  = []
+    test_acc_hist   = []
+    
     print(net)
     print(model_params(net))
     print('\nTraining Fixed Point Network')
 
     for epoch in range(num_epochs):
-        sleep(1.0)  # slows progress bar so it won't print on multiple lines
+        sleep(0.5)  # slows progress bar so it won't print on multiple lines
         epoch_start_time = time.time()
         tot = len(train_loader)
         with tqdm(total=tot, unit=" batch", leave=False, ascii=True) as tepoch:
@@ -117,6 +121,9 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                                                  batch_size,
                                                  sig_dim, loss,
                                                  op_dim)
+        
+        test_loss_hist.append(test_loss)
+        test_acc_hist.append(test_acc)
 
         print(fmt.format(epoch+1, num_epochs, train_acc, loss_ave,
                          test_acc, test_loss, depth_ave,
@@ -125,13 +132,17 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         # ---------------------------------------------------------------------
         # Save weights every 10 epochs
         # ---------------------------------------------------------------------
-        if (epoch + 1) % 10 == 0 and test_acc > best_test_acc:
+        if epoch % 10 == 0 and test_acc > best_test_acc:
             state = {
                 'eps': alg_params.eps,
                 'max depth': alg_params.depth,
                 'alpha': alg_params.alpha,
                 'gamma': alg_params.gamma,
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist, 
                 'net_state_dict': net.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler
             }
             file_name = save_dir + 'KM_' + net.name() + '_weights.pth'
             torch.save(state, file_name)
