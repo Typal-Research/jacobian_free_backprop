@@ -14,7 +14,7 @@ class KM_params():
             alpha : relaxation factor in (0, 1)
             gamma : contraction factor in [0, 1]
             eps   : stopping criterion for fixed point residual
-        max depth : maximum number of iterations before breaking from loop
+            depth : maximum number of iterations before breaking from loop
     """
     def __init__(self, eps=EPS_DEFAULT, depth=DEPTH_DEFAULT,
                  alpha=ALPHA_DEFAULT, gamma=GAMMA_DEFAULT):
@@ -28,17 +28,17 @@ class KM_params():
         output += '          alpha: %r\n'
         output += '          gamma: %r\n'
         output += '            eps: %r\n'
-        output += '      max depth: %r\n'
+        output += '          depth: %r\n'
         output += ')\n'
         return output % (self.alpha, self.gamma, self.eps, self.depth)
 
 
-def LFPN_network(my_class):
+def replace_forward_with_KM(my_class):
     def decorate(*args, **kwargs):
         net = my_class(*args, **kwargs)
         apply_T = net.forward
 
-        def project_weights(s_lo=0.0, u=None, d=None):
+        def project_weights(s_lo=0.05, u=None, d=None):
             """ Threshold the singular values of the nn.Linear mappings to be
                 in the interval [s_lo, 1.0] and apply power iteration to
                 normalize convolutional layers, which is accomplished
@@ -56,11 +56,14 @@ def LFPN_network(my_class):
                 This scheme finds the fixed point of a contraction variant
                 of a nonexpansive operator T. The output u* approximately
                 satisfies
-                    u* = alpha * gamma * u* + (1 - alpha) * T(u*; d),
-                where d is measurement data (e.g., an image).
 
-                The algorithm using updates of the form
+                    u* = alpha * gamma * u* + (1 - alpha) * T(u*; d),
+
+                where d is measurement data (e.g., an image). The algorithm
+                uses updates of the form
+
                         u^{k+1} = alpha * u^k + (1 - alpha) * T(u^k; d),
+
                 and the fixed point is unique when gamma < 1.
             """
             # Initialize u to uniform probability concatenated with zeros
@@ -75,7 +78,7 @@ def LFPN_network(my_class):
 
             train_state = net.training
             if train_state:
-                net.project_weights(s_lo=0, u=u, d=d)
+                net.project_weights(u=u, d=d)
 
             net.eval()
             depth = 0.0
@@ -109,8 +112,13 @@ def LFPN_network(my_class):
 
 
 class LFPN(ABC, nn.Module):
-    """ Learned Fixed Point Network (LFPN) is used in conjuntion
-        with the KM class to...
+    """ Learned Fixed Point Network (LFPN) transforms nn.Module
+        into a network that uses KM iterations for forwardprop
+        and the simple backprop through the final layer trick for
+        backprop.
+
+        Note: This class works in conjunction with the
+              'replace_forward_with_KM' decorator.
     """
 
     @abstractmethod
@@ -119,7 +127,7 @@ class LFPN(ABC, nn.Module):
         """
         pass
 
-    def proj_sing_val(self, matrix, s_lo=0.0):
+    def proj_sing_val(self, matrix, s_lo: float = 0.0):
         """ Project singular values of matrix onto interval [s_low, 1.0].
         """
         u, s, v = torch.svd(matrix)
@@ -128,7 +136,7 @@ class LFPN(ABC, nn.Module):
         return torch.mm(torch.mm(u, torch.diag(s)), v.t())
 
 
-@LFPN_network
+@replace_forward_with_KM
 class MNIST_FCN(LFPN):
     def __init__(self, op_dim, device):
         super().__init__()
@@ -136,11 +144,11 @@ class MNIST_FCN(LFPN):
         self.fc_y = nn.Linear(op_dim, op_dim, bias=False)
         self.fc_u = nn.Linear(op_dim, op_dim, bias=False)
         self.relu = nn.ReLU()
-        self.op_dim = op_dim
-        self.sig_dim = 10
 
         # required
         self.device = device
+        self.op_dim = op_dim
+        self.sig_dim = 10
 
     def name(self):
         return 'MNIST_FCN'
@@ -150,13 +158,13 @@ class MNIST_FCN(LFPN):
         return self.relu(0.1 * self.fc_u(u.float()) + 0.9 * self.fc_y(y))
 
 
-@LFPN_network
+@replace_forward_with_KM
 class MNIST_CNN(LFPN):
     def __init__(self, op_dim, device):
         super().__init__()
         self.maxpool = nn.MaxPool2d(kernel_size=2)
         self.relu = nn.ReLU()
-        self.fc_y = nn.Linear(1500,    op_dim, bias=True)
+        self.fc_y = nn.Linear(1250,    op_dim, bias=True)
         self.fc_u = nn.Linear(op_dim, op_dim, bias=False)
         self.op_dim = op_dim
         self.sig_dim = 10
@@ -168,7 +176,7 @@ class MNIST_CNN(LFPN):
                                                             stride=1),
                                                   n_power_iterations=10)
         self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=95,
-                                                            out_channels=60,
+                                                            out_channels=50,
                                                             kernel_size=3,
                                                             stride=1),
                                                   n_power_iterations=10)

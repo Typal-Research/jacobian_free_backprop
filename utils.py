@@ -61,10 +61,10 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
     depth_ave = 0.0
     train_acc = 0.0
     best_test_acc = 0.0
-    
-    test_loss_hist  = []
-    test_acc_hist   = []
-    
+
+    test_loss_hist = []
+    test_acc_hist = []
+
     print(net)
     print(model_params(net))
     print('\nTraining Fixed Point Network')
@@ -121,7 +121,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                                                  batch_size,
                                                  sig_dim, loss,
                                                  op_dim)
-        
+
         test_loss_hist.append(test_loss)
         test_acc_hist.append(test_acc)
 
@@ -132,7 +132,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         # ---------------------------------------------------------------------
         # Save weights every 10 epochs
         # ---------------------------------------------------------------------
-        if epoch % 10 == 0 and test_acc > best_test_acc:
+        if (epoch + 1) % 10 == 0 and test_acc > best_test_acc:
             best_test_acc = test_acc
             state = {
                 'eps': alg_params.eps,
@@ -140,7 +140,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 'alpha': alg_params.alpha,
                 'gamma': alg_params.gamma,
                 'test_loss_hist': test_loss_hist,
-                'test_acc_hist': test_acc_hist, 
+                'test_acc_hist': test_acc_hist,
                 'net_state_dict': net.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler
