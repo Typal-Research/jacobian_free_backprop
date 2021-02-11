@@ -5,8 +5,8 @@ import numpy as np
 
 EPS_DEFAULT = 1.0e-5
 DEPTH_DEFAULT = 500
-ALPHA_DEFAULT = 0.1
-GAMMA_DEFAULT = 0.9
+ALPHA_DEFAULT = 0.01
+GAMMA_DEFAULT = 0.99
 
 
 class KM_params():
@@ -40,10 +40,11 @@ def replace_forward_with_KM(my_class):
 
         def project_weights(u=None, d=None):
             """ Threshold the singular values of the nn.Linear mappings to be
-                in the interval [s_lo, 1.0] and apply power iteration to
-                normalize convolutional layers, which is accomplished
-                automatically by calling the apply_T command when net is
-                in train mode.
+                be bounded by 1.0 if the layer depends on u and s_hi
+                otherwise. Also apply power iteration to convolutional layers
+                that are embedded in nn.utils.spectral_norm, which is
+                accomplished automatically by calling the apply_T command
+                when net is in train mode.
             """
             for mod in net.modules():
                 if type(mod) == nn.Linear:
