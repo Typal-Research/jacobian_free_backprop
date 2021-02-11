@@ -38,7 +38,7 @@ def replace_forward_with_KM(my_class):
         net = my_class(*args, **kwargs)
         apply_T = net.forward
 
-        def project_weights(s_lo=0.05, u=None, d=None):
+        def project_weights(u=None, d=None):
             """ Threshold the singular values of the nn.Linear mappings to be
                 in the interval [s_lo, 1.0] and apply power iteration to
                 normalize convolutional layers, which is accomplished
@@ -47,7 +47,13 @@ def replace_forward_with_KM(my_class):
             """
             for mod in net.modules():
                 if type(mod) == nn.Linear:
-                    mod.weight.data = net.proj_sing_val(mod.weight.data, s_lo)
+                    if mod.weight.data.size()[0] == net.op_dim:
+                        mod.weight.data = net.proj_sing_val(mod.weight.data,
+                                                            s_hi=1.0)
+                    else:
+                        mod.weight.data = net.proj_sing_val(mod.weight.data,
+                                                            s_hi=net.s_hi())
+
             if u is not None and d is not None:
                 apply_T(u, d)
 
@@ -67,8 +73,8 @@ def replace_forward_with_KM(my_class):
                 and the fixed point is unique when gamma < 1.
             """
             # Initialize u to uniform probability concatenated with zeros
-            u = torch.zeros((d.size()[0], net.op_dim)).to(net.device)
-            u[:, 0:net.sig_dim] = 1.0 / float(net.sig_dim)
+            u = torch.zeros((d.size()[0], net.op_dim())).to(net.device())
+            u[:, 0:net.sig_dim()] = 1.0 / float(net.sig_dim())
 
             alg_params = KM_params() if alg_params is None else alg_params
             eps = alg_params.eps
@@ -84,7 +90,7 @@ def replace_forward_with_KM(my_class):
             depth = 0.0
             u_prev = u.clone()
             indices = np.array(range(len(u[:, 0])))
-            u = u.to(net.device)
+            u = u.to(net.device())
             # Mask shows not converged 'nc' samples (False = converged)
             nc = np.ones((1, u[:, 0].size()[0]), dtype=bool)
             nc = nc.reshape((nc.shape[1]))
@@ -103,7 +109,7 @@ def replace_forward_with_KM(my_class):
                 u = apply_T(u, d)
 
             net.depth = depth
-            return u.to(net.device)
+            return u.to(net.device())
 
         net.forward = KM
         net.project_weights = project_weights
@@ -127,35 +133,44 @@ class LFPN(ABC, nn.Module):
         """
         pass
 
-    def proj_sing_val(self, matrix, s_lo: float = 0.0):
-        """ Project singular values of matrix onto interval [s_low, 1.0].
+    @abstractmethod
+    def op_dim(self) -> int:
+        """ Identify dimension of u in T(u,d)
+        """
+        pass
+
+    @abstractmethod
+    def sig_dim(self) -> int:
+        """ Identify dimension of signal, which is a subvector of u,
+            i.e., sig_dim <= op_dim.
+        """
+        pass
+
+    @abstractmethod
+    def device(self) -> str:
+        """ Identify device on which to run network, typically
+            'cpu' or 'cuda'
+        """
+        pass
+
+    @abstractmethod
+    def s_hi(self) -> str:
+        """ Largest singular value for nn.Linear mappings
+            that do depend only on d and do *not* depend on u.
+
+            Note: All nn.Linear mappings that have inputs of
+                  size self._op_dim are set have singular values
+                  bounded by 1.0. This ensures convergence of the
+                  KM method.
+        """
+        pass
+
+    def proj_sing_val(self, matrix, s_hi: float = 1.0):
+        """ Bound singular values of matrix by s_hi.
         """
         u, s, v = torch.svd(matrix)
-        s[s > 1.0] = 1.0
-        s[s < s_lo] = s_lo
+        s[s > s_hi] = s_hi
         return torch.mm(torch.mm(u, torch.diag(s)), v.t())
-
-
-@replace_forward_with_KM
-class MNIST_FCN(LFPN):
-    def __init__(self, op_dim, device):
-        super().__init__()
-        self.fc_d = nn.Linear(784,     op_dim, bias=True)
-        self.fc_y = nn.Linear(op_dim, op_dim, bias=False)
-        self.fc_u = nn.Linear(op_dim, op_dim, bias=False)
-        self.relu = nn.ReLU()
-
-        # required
-        self.device = device
-        self.op_dim = op_dim
-        self.sig_dim = 10
-
-    def name(self):
-        return 'MNIST_FCN'
-
-    def forward(self, u, d=None):
-        y = self.relu(self.fc_d(d.float()))
-        return self.relu(0.1 * self.fc_u(u.float()) + 0.9 * self.fc_y(y))
 
 
 @replace_forward_with_KM
@@ -164,28 +179,44 @@ class MNIST_CNN(LFPN):
         super().__init__()
         self.maxpool = nn.MaxPool2d(kernel_size=2)
         self.relu = nn.ReLU()
-        self.fc_y = nn.Linear(1250,    op_dim, bias=True)
+        self.fc_y = nn.Linear(1000,    op_dim, bias=True)
         self.fc_u = nn.Linear(op_dim, op_dim, bias=False)
-        self.op_dim = op_dim
-        self.sig_dim = 10
-        self.device = device
-        self.drop_out = nn.Dropout(p=0.05)
+        self._op_dim = op_dim
+        self._sig_dim = 10
+        self._device = device
+        self.drop_out = nn.Dropout(p=0.1)
+        self.soft_max = nn.Softmax(dim=1)
         self.conv1 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=1,
-                                                            out_channels=95,
+                                                            out_channels=115,
                                                             kernel_size=3,
                                                             stride=1),
-                                                  n_power_iterations=10)
-        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=95,
-                                                            out_channels=50,
+                                                  n_power_iterations=1)
+        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=115,
+                                                            out_channels=40,
                                                             kernel_size=3,
                                                             stride=1),
-                                                  n_power_iterations=10)
+                                                  n_power_iterations=1)
 
     def name(self):
         return 'MNIST_CNN'
 
+    def device(self):
+        return self._device
+
+    def op_dim(self):
+        return self._op_dim
+
+    def sig_dim(self):
+        return self._sig_dim
+
+    def s_hi(self):
+        return 2.0
+
     def forward(self, u, d):
         y = self.maxpool(self.relu(self.conv1(d)))
-        y = self.maxpool(self.drop_out(self.relu(self.conv2(y))))
+        y = self.maxpool(self.relu(self.drop_out(self.conv2(y))))
         y = y.view(d.shape[0], -1)
-        return 0.1 * self.fc_u(u) + 0.9 * self.fc_y(y)
+        y = 0.5 * self.fc_u(u) + 0.5 * self.fc_y(y)
+        u = self.soft_max(y[:, 0:self._sig_dim].clone())
+        y[:, 0:self._sig_dim] = u
+        return y

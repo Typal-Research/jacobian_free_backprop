@@ -11,12 +11,12 @@ def get_stats(net, test_loader, batch_size, n, loss,
     correct = 0
     with torch.no_grad():
         for d_test, labels in test_loader:
-            labels = labels.to(net.device)
-            d_test = d_test.to(net.device)
+            labels = labels.to(net.device())
+            d_test = d_test.to(net.device())
             if net.name() == "MNIST_FCN":
-                d_test = d_test.view(d_test.size()[0], 784).to(net.device)
+                d_test = d_test.view(d_test.size()[0], 784).to(net.device())
 
-            ut = torch.zeros((d_test.size()[0], n)).to(net.device)
+            ut = torch.zeros((d_test.size()[0], n)).to(net.device())
             for i in range(d_test.size()[0]):
                 ut[i, labels[i].cpu().numpy()] = 1.0
 
@@ -78,13 +78,13 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
             tepoch.set_description("[{:3d}/{:3d}]".format(epoch+1, num_epochs))
 
             for idx, (d, labels) in enumerate(train_loader):
-                labels = labels.to(net.device)
-                d = d.to(net.device)
+                labels = labels.to(net.device())
+                d = d.to(net.device())
 
                 if net.name() == "MNIST_FCN":
-                    d = d.view(d.size()[0], 784).to(net.device)
+                    d = d.view(d.size()[0], 784).to(net.device())
 
-                ut = torch.zeros((d.size()[0], sig_dim)).to(net.device)
+                ut = torch.zeros((d.size()[0], sig_dim)).to(net.device())
                 for i in range(d.size()[0]):
                     ut[i, labels[i].cpu().numpy()] = 1.0
                 # -------------------------------------------------------------
