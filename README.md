@@ -29,5 +29,7 @@ Compatible with python 3.5+ and known to work with pytorch 1.4, torchvision 0.5,
 
 [LFPN-SVHN](https://colab.research.google.com/drive/1YUZMnU6EffbH2KrmGP56ltiTseBPWbhO#scrollTo=dxAwIe3IYnx6&uniqifier=2)
 
+[NLP-Prototype](https://colab.research.google.com/drive/1tcN5fJnkAwWBCtMJjVVez940QMC43igh)
+
 
 
