@@ -5,8 +5,7 @@ import time
 from tqdm import tqdm
 
 
-def get_stats(net, test_loader, batch_size, n, loss,
-              hid_size):
+def get_stats(net, test_loader, batch_size, loss, num_classes):
     test_loss = 0
     correct = 0
     with torch.no_grad():
@@ -16,11 +15,12 @@ def get_stats(net, test_loader, batch_size, n, loss,
             if net.name() == "MNIST_FCN":
                 d_test = d_test.view(d_test.size()[0], 784).to(net.device())
 
-            ut = torch.zeros((d_test.size()[0], n)).to(net.device())
+            ut = torch.zeros((d_test.size()[0], num_classes))
+            ut = ut.to(net.device())
             for i in range(d_test.size()[0]):
                 ut[i, labels[i].cpu().numpy()] = 1.0
 
-            y = net(d_test)[:, 0:n]
+            y = net(d_test)
 
             if str(loss) == "MSELoss()":
                 test_loss += loss(y.double(), ut.double()).item()
@@ -52,7 +52,7 @@ def model_params(net):
 
 def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                     test_loader, batch_size, sig_dim, op_dim,
-                    optimizer, loss, alg_params=None, save_dir='./'):
+                    optimizer, loss, num_classes, save_dir='./'):
 
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
     fmt += '{:6.2e}) | depth = {:4.1f} | lr = {:5.1e} | time = {:4.1f} sec'
@@ -91,8 +91,8 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 # Apply network to get fixed point and then backprop
                 # -------------------------------------------------------------
                 optimizer.zero_grad()
-                y = net(d, alg_params)
-                y = y[:, 0:sig_dim]
+                y = net(d)
+
                 depth_ave = net.depth
                 output = None
                 if str(loss) == "MSELoss()":
@@ -119,8 +119,8 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         test_loss, test_acc, correct = get_stats(net,
                                                  test_loader,
                                                  batch_size,
-                                                 sig_dim, loss,
-                                                 op_dim)
+                                                 loss,
+                                                 num_classes)
 
         test_loss_hist.append(test_loss)
         test_acc_hist.append(test_acc)
@@ -135,10 +135,6 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         if (epoch + 1) % 10 == 0 and test_acc > best_test_acc:
             best_test_acc = test_acc
             state = {
-                'eps': alg_params.eps,
-                'max depth': alg_params.depth,
-                'alpha': alg_params.alpha,
-                'gamma': alg_params.gamma,
                 'test_loss_hist': test_loss_hist,
                 'test_acc_hist': test_acc_hist,
                 'net_state_dict': net.state_dict(),
