@@ -91,7 +91,7 @@ class LFPN(ABC, nn.Module):
             if type(mod) == nn.Linear:
                 s_hi = 1.0 if mod.weight.data.size()[0] == self.lat_dim \
                        else self.s_hi()
-                u, s, v = torch.svd_lowrank(mod.weight.data)
+                u, s, v = torch.svd(mod.weight.data)
                 s[s > s_hi] = s_hi
                 mod.weight.data = torch.mm(torch.mm(u, torch.diag(s)), v.t())
 
