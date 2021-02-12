@@ -5,7 +5,7 @@ import time
 from tqdm import tqdm
 
 
-def get_stats(net, test_loader, batch_size, loss, num_classes):
+def get_stats(net, test_loader, batch_size, loss, num_classes, eps, depth):
     test_loss = 0
     correct = 0
     with torch.no_grad():
@@ -20,7 +20,7 @@ def get_stats(net, test_loader, batch_size, loss, num_classes):
             for i in range(d_test.size()[0]):
                 ut[i, labels[i].cpu().numpy()] = 1.0
 
-            y = net(d_test)
+            y = net(d_test, eps=eps, max_depth=depth)
 
             if str(loss) == "MSELoss()":
                 test_loss += loss(y.double(), ut.double()).item()
@@ -51,8 +51,8 @@ def model_params(net):
 
 
 def train_class_net(net, num_epochs, lr_scheduler, train_loader,
-                    test_loader, batch_size, optimizer, loss, 
-                    num_classes, save_dir='./'):
+                    test_loader, batch_size, optimizer, loss,
+                    num_classes, eps, depth, save_dir='./'):
 
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
     fmt += '{:6.2e}) | depth = {:4.1f} | lr = {:5.1e} | time = {:4.1f} sec'
@@ -91,7 +91,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 # Apply network to get fixed point and then backprop
                 # -------------------------------------------------------------
                 optimizer.zero_grad()
-                y = net(d)
+                y = net(d, eps=eps, max_depth=depth)
 
                 depth_ave = net.depth
                 output = None
@@ -120,7 +120,9 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                                                  test_loader,
                                                  batch_size,
                                                  loss,
-                                                 num_classes)
+                                                 num_classes,
+                                                 eps,
+                                                 depth)
 
         test_loss_hist.append(test_loss)
         test_acc_hist.append(test_acc)
