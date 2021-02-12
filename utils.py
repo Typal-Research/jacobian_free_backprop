@@ -51,8 +51,8 @@ def model_params(net):
 
 
 def train_class_net(net, num_epochs, lr_scheduler, train_loader,
-                    test_loader, batch_size, sig_dim, op_dim,
-                    optimizer, loss, num_classes, save_dir='./'):
+                    test_loader, batch_size, optimizer, loss, 
+                    num_classes, save_dir='./'):
 
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
     fmt += '{:6.2e}) | depth = {:4.1f} | lr = {:5.1e} | time = {:4.1f} sec'
@@ -84,7 +84,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 if net.name() == "MNIST_FCN":
                     d = d.view(d.size()[0], 784).to(net.device())
 
-                ut = torch.zeros((d.size()[0], sig_dim)).to(net.device())
+                ut = torch.zeros((d.size()[0], num_classes)).to(net.device())
                 for i in range(d.size()[0]):
                     ut[i, labels[i].cpu().numpy()] = 1.0
                 # -------------------------------------------------------------
