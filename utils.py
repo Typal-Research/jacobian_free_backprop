@@ -5,13 +5,14 @@ import time
 from tqdm import tqdm
 
 
-def get_stats(net, test_loader, batch_size, loss, num_classes, eps, depth):
+def get_stats(net, test_loader, loss, num_classes, eps, depth):
     test_loss = 0
     correct = 0
     with torch.no_grad():
         for d_test, labels in test_loader:
             labels = labels.to(net.device())
             d_test = d_test.to(net.device())
+            batch_size = d_test.shape[0]
             if net.name() == "MNIST_FCN":
                 d_test = d_test.view(d_test.size()[0], 784).to(net.device())
 
@@ -23,9 +24,9 @@ def get_stats(net, test_loader, batch_size, loss, num_classes, eps, depth):
             y = net(d_test, eps=eps, max_depth=depth)
 
             if str(loss) == "MSELoss()":
-                test_loss += loss(y.double(), ut.double()).item()
+                test_loss += batch_size * loss(y.double(), ut.double()).item()
             elif str(loss) == "CrossEntropyLoss()":
-                test_loss += loss(y, labels).item()  # sum up batch loss
+                test_loss += batch_size * loss(y, labels).item()  # sum up batch loss
             else:
                 print("Error: Invalid Loss Function")
 
@@ -51,7 +52,7 @@ def model_params(net):
 
 
 def train_class_net(net, num_epochs, lr_scheduler, train_loader,
-                    test_loader, batch_size, optimizer, loss,
+                    test_loader, optimizer, loss,
                     num_classes, eps, depth, save_dir='./'):
 
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
@@ -81,6 +82,8 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 labels = labels.to(net.device())
                 d = d.to(net.device())
 
+                batch_size = d.shape[0]
+
                 if net.name() == "MNIST_FCN":
                     d = d.view(d.size()[0], 784).to(net.device())
 
@@ -101,8 +104,9 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                     output = loss(y, labels)
                 else:
                     print("Error: Invalid Loss Function")
-                loss_val = output.detach().cpu().numpy() / batch_size
-                loss_ave = 0.99 * loss_ave + 0.01 * loss_val
+                loss_val = output.detach().cpu().numpy() * batch_size
+                # loss_ave = 0.99 * loss_ave + 0.01 * loss_val
+                loss_ave += loss_val
                 output.backward()
                 optimizer.step()
                 # -------------------------------------------------------------
@@ -112,13 +116,16 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 correct = pred.eq(labels.view_as(pred)).sum().item()
                 train_acc = 0.99 * train_acc + 1.00 * correct / batch_size
                 tepoch.update(1)
-                tepoch.set_postfix(train_loss="{:5.2e}".format(loss_ave),
+                tepoch.set_postfix(train_loss="{:5.2e}".format(loss_val),
                                    train_acc="{:5.2f}%".format(train_acc),
                                    depth="{:5.1f}".format(depth_ave))
 
+
+        # divide by total number of training samples 
+        loss_ave = loss_ave / len(train_loader.dataset)
+
         test_loss, test_acc, correct = get_stats(net,
                                                  test_loader,
-                                                 batch_size,
                                                  loss,
                                                  num_classes,
                                                  eps,
