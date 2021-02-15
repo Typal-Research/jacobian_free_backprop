@@ -1,4 +1,4 @@
-# Learned Fixed Point Networks
+# Fixed Point Networks
 
 
 ## Associated Publication
