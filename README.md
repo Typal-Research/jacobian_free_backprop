@@ -21,13 +21,15 @@ Compatible with python 3.5+ and known to work with pytorch 1.4, torchvision 0.5,
 
 ### Code for reference:
 
-[LFPN-MNIST-FCN](https://colab.research.google.com/drive/1FxOEibCOyDVd3Skhx6LUpvyGACEe4GzO?usp=sharing)
+[FPN-MNIST-FCN](https://colab.research.google.com/drive/1FxOEibCOyDVd3Skhx6LUpvyGACEe4GzO?usp=sharing)
 
-[LFPN-MNIST-CNN](https://colab.research.google.com/drive/15moVLDZCt6R2tObV9YuRF3xWENOhVWs2)
+[FPN-MNIST-CNN](https://colab.research.google.com/drive/15moVLDZCt6R2tObV9YuRF3xWENOhVWs2)
 
-[LFPN-CIFAR10](https://colab.research.google.com/drive/1r3pE-ZIGPfUK0JhPk7fuenQ9N3NgxZ0r#scrollTo=dxAwIe3IYnx6)
+[FPN-CIFAR10-Unaugmented](https://colab.research.google.com/drive/1KKtcdS-SMdbxCA9NfoaQg57QcRgLLrmv?usp=sharing)
 
-[LFPN-SVHN](https://colab.research.google.com/drive/1YUZMnU6EffbH2KrmGP56ltiTseBPWbhO#scrollTo=dxAwIe3IYnx6&uniqifier=2)
+[FPN-CIFAR10](https://colab.research.google.com/drive/1r3pE-ZIGPfUK0JhPk7fuenQ9N3NgxZ0r#scrollTo=dxAwIe3IYnx6)
+
+[FPN-SVHN](https://colab.research.google.com/drive/1YUZMnU6EffbH2KrmGP56ltiTseBPWbhO#scrollTo=dxAwIe3IYnx6&uniqifier=2)
 
 [NLP-Prototype](https://colab.research.google.com/drive/1tcN5fJnkAwWBCtMJjVVez940QMC43igh)
 
