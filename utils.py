@@ -26,7 +26,7 @@ def get_stats(net, test_loader, loss, num_classes, eps, depth):
             if str(loss) == "MSELoss()":
                 test_loss += batch_size * loss(y.double(), ut.double()).item()
             elif str(loss) == "CrossEntropyLoss()":
-                test_loss += batch_size * loss(y, labels).item()  # sum up batch loss
+                test_loss += batch_size * loss(y, labels).item()
             else:
                 print("Error: Invalid Loss Function")
 
@@ -116,12 +116,12 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 correct = pred.eq(labels.view_as(pred)).sum().item()
                 train_acc = 0.99 * train_acc + 1.00 * correct / batch_size
                 tepoch.update(1)
-                tepoch.set_postfix(train_loss="{:5.2e}".format(loss_val),
+                tepoch.set_postfix(train_loss="{:5.2e}".format(loss_val
+                                   / batch_size),
                                    train_acc="{:5.2f}%".format(train_acc),
                                    depth="{:5.1f}".format(depth_ave))
 
-
-        # divide by total number of training samples 
+        #  divide by total number of training samples
         loss_ave = loss_ave / len(train_loader.dataset)
 
         test_loss, test_acc, correct = get_stats(net,

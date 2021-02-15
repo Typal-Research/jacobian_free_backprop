@@ -9,20 +9,23 @@ DEPTH_DEFAULT = 500
 
 class LFPN(ABC, nn.Module):
     """ Learned Fixed Point Network (LFPN) transforms nn.Module
-        into a network that uses fixed point iterations to forward prop
+        into a network that uses fixed point iterations to forward prop,
         and backprops only through through final "step" of network,
-        once it reaches a fixed point. That is,
+        once it approximatley reaches a fixed point. That is,
 
             forward(d) = map_latent_to_inference(u),
 
         where u approximately satisfies the fixed point condition
 
             u = latent_space_forward(u, data_space_forward(d)).
+
+        Users must define each of these three functions called in forward,
+        and the forward method is defined already in terms of these.
     """
 
     @abstractmethod
     def name(self) -> str:
-        """ Identify name of network
+        """ Identify name of network; used for file saving.
         """
         pass
 
@@ -36,14 +39,16 @@ class LFPN(ABC, nn.Module):
     @abstractmethod
     def device(self) -> str:
         """ Identify device on which to run network, typically
-            'cpu' or 'cuda'.
+            'cpu' or 'cuda'. This is required solely because some
+            variables are defined in forward that ought to be
+            initialized to device.
         """
         pass
 
     @abstractmethod
-    def s_hi(self) -> str:
+    def s_hi(self) -> float:
         """ Largest singular value for nn.Linear mappings
-            that do depend only on d and do *not* depend on u.
+            that depend only on d and do *not* depend on u.
 
             Note: All nn.Linear mappings that have inputs of
                   size self.lat_dim() are set have singular values
@@ -74,7 +79,12 @@ class LFPN(ABC, nn.Module):
     @abstractmethod
     def data_space_forward(self, d: torch.tensor) -> torch.tensor:
         """ Map input data to the latent space where fixed point
-            iterations occur.
+            iterations occur. This is where typical neural network
+            structures are inserted, e.g. CNNs or RNNs. The distinction
+            is that they output is a latent space variable "u" rather
+            than the final inference (in some special isnstances the
+            latent space variable is in the same space as the inference
+            space).
         """
         pass
 
