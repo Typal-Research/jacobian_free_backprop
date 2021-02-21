@@ -98,8 +98,8 @@ class LFPN(ABC, nn.Module):
                   those layers 1-Lipschitz.
         """
         for mod in self.modules():
-            if type(mod) == nn.Linear:
-                s_hi = 1.0 if mod.weight.data.size()[0] == self.lat_dim \
+            if type(mod) == nn.Linear and mod.weight.size()[0] == self.lat_dim():
+                s_hi = 1.0 if mod.weight.data.size()[0] == self.lat_dim() \
                        else self.s_hi()
                 u, s, v = torch.svd(mod.weight.data)
                 s[s > s_hi] = s_hi
@@ -199,6 +199,46 @@ class CIFAR10_CNN(LFPN):
         v = self.maxpool(self.relu(self.conv3(v)))
         v = v.view(current_batch_size, -1)
         return self.relu(self.fc_v(v))
+
+    def map_latent_to_inference(self, u):
+        return u[:, 0:10]
+
+
+class MNIST_FCN(LFPN):
+    def __init__(self, lat_dim, device, s_hi=1.0, inf_dim=10):
+        super().__init__()
+        self.fc_d = nn.Linear(784,          95, bias=True)
+        self.fc_v = nn.Linear(95,      lat_dim, bias=True)
+        self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
+        self.relu = nn.ReLU()
+        self._lat_dim = lat_dim
+        self._inf_dim = inf_dim
+        self._s_hi = s_hi
+        self._device = device
+        self.dropout = nn.Dropout(p=0.02)
+
+    def name(self):
+        return 'MNIST_FCN'
+
+    def device(self):
+        return self._device
+
+    def lat_dim(self):
+        return self._lat_dim
+
+    def inf_dim(self):
+        return self._inf_dim
+
+    def s_hi(self):
+        return self._s_hi
+
+    def data_space_forward(self, d):
+        v = self.relu(self.dropout(self.fc_d(d.float())))
+        v = self.relu(self.fc_v(v))
+        return v
+
+    def latent_space_forward(self, u, v):
+        return 0.8 * self.fc_u(self.relu(u) + v)
 
     def map_latent_to_inference(self, u):
         return u[:, 0:10]

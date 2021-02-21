@@ -150,7 +150,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler
             }
-            file_name = save_dir + 'KM_' + net.name() + '_weights.pth'
+            file_name = save_dir + 'FPN_' + net.name() + '_weights.pth'
             torch.save(state, file_name)
             print('Model weights saved to ' + file_name)
 
