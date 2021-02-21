@@ -12,13 +12,9 @@ class LFPN(ABC, nn.Module):
         into a network that uses fixed point iterations to forward prop,
         and backprops only through through final "step" of network,
         once it approximatley reaches a fixed point. That is,
-
             forward(d) = map_latent_to_inference(u),
-
         where u approximately satisfies the fixed point condition
-
             u = latent_space_forward(u, data_space_forward(d)).
-
         Users must define each of these three functions called in forward,
         and the forward method is defined already in terms of these.
     """
@@ -49,7 +45,6 @@ class LFPN(ABC, nn.Module):
     def s_hi(self) -> float:
         """ Largest singular value for nn.Linear mappings
             that depend only on d and do *not* depend on u.
-
             Note: All nn.Linear mappings that have inputs of
                   size self.lat_dim() are set have singular values
                   bounded by 1.0. This ensures convergence of the
@@ -69,7 +64,6 @@ class LFPN(ABC, nn.Module):
     def latent_space_forward(self, u: torch.tensor,
                              v: torch.tensor) -> torch.tensor:
         """ Fixed point mapping inside the latent space.
-
             In practice, v = data_space_forward(d) is used to save
             the unnecessary computational cost of recomputing
             data_space_forward(d) in each fixed point update.
@@ -92,7 +86,6 @@ class LFPN(ABC, nn.Module):
         """ Threshold the singular values of the nn.Linear mappings to be
             be bounded by 1.0 if the layer depends on u and s_hi
             otherwise.
-
             Note: We highly recommend using nn.utils.spectral_norm for
                   convolutional layers, which will automatically make
                   those layers 1-Lipschitz.
@@ -108,17 +101,11 @@ class LFPN(ABC, nn.Module):
     def forward(self, d: torch.tensor, eps: float = EPS_DEFAULT,
                 max_depth: int = DEPTH_DEFAULT) -> torch.tensor:
         """ Network inferences satisfy
-
                 forward(d) = map_latent_to_inference(u),
-
             where u approximately satisfies the fixed point condition
-
                 u = latent_space_forward(u, data_space_forward(d)).
-
             To obtain the fixed point, we use the iteration
-
                 u <-- latent_space_forward(u, d),
-
             where we assume users will design the forward step to yield
             a contractive operator with respect to u.
         """
