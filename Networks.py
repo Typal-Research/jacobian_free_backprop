@@ -91,7 +91,7 @@ class LFPN(ABC, nn.Module):
                   those layers 1-Lipschitz.
         """
         for mod in self.modules():
-            if type(mod) == nn.Linear and mod.weight.size()[0] == self.lat_dim():
+            if type(mod) == nn.Linear and mod.weight.size()[0] == self.lat_dim() and mod.weight.size()[1] == self.lat_dim():
                 s_hi = 1.0 if mod.weight.data.size()[0] == self.lat_dim() \
                        else self.s_hi()
                 u, s, v = torch.svd(mod.weight.data)
