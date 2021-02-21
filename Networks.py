@@ -98,9 +98,10 @@ class LFPN(ABC, nn.Module):
                   those layers 1-Lipschitz.
         """
         for mod in self.modules():
-            if type(mod) == nn.Linear and mod.weight.size()[0] == self.lat_dim():
-                s_hi = 1.0 if mod.weight.data.size()[0] == self.lat_dim() \
-                       else self.s_hi()
+            if type(mod) == nn.Linear:
+                lat_space_op = mod.weight.data.size()[0] == self.lat_dim() \
+                               and mod.weight.data.size()[1] == self.lat_dim()
+                s_hi = 1.0 if lat_space_op else self.s_hi()
                 u, s, v = torch.svd(mod.weight.data)
                 s[s > s_hi] = s_hi
                 mod.weight.data = torch.mm(torch.mm(u, torch.diag(s)), v.t())
@@ -245,3 +246,53 @@ class MNIST_FCN(LFPN):
 
     def map_latent_to_inference(self, u):
         return u[:, 0:10]
+
+
+class MNIST_CNN(LFPN):
+    def __init__(self, lat_dim, device, s_hi=1.0):
+        super().__init__()
+        self.maxpool = nn.MaxPool2d(kernel_size=2)
+        self.relu = nn.ReLU()
+        self.fc_y = nn.Linear(1250,    lat_dim, bias=False)
+        self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
+        self.fc_y = nn.Linear(lat_dim, lat_dim, bias=False)
+        self._lat_dim = lat_dim
+        self._device = device
+        self._s_hi = s_hi
+        self.drop_out = nn.Dropout(p=0.4)
+        self.conv1 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=1,
+                                                            out_channels=85,
+                                                            kernel_size=3,
+                                                            stride=1),
+                                                  n_power_iterations=10)
+        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=85,
+                                                            out_channels=50,
+                                                            kernel_size=3,
+                                                            stride=1),
+                                                  n_power_iterations=10)
+
+    def name(self):
+        return 'MNIST_CNN'
+
+    def device(self):
+        return self._device
+
+    def lat_dim(self):
+        return self._lat_dim
+
+    def s_hi(self):
+        return self._s_hi
+
+    def latent_space_forward(self, u, v):
+        u = 0.9 * self.fc_u(self.relu(u) + v)
+        return u
+
+    def data_space_forward(self, d):
+        v = self.maxpool(self.relu(self.conv1(d)))
+        v = self.maxpool(self.relu(self.drop_out(self.conv2(v))))
+        v = v.view(d.shape[0], -1)
+        v = self.relu(self.fc_y(v))
+        return v
+
+    def map_latent_to_inference(self, u):
+        return self.relu(self.fc_f(u))
