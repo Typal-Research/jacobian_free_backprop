@@ -12,13 +12,9 @@ class LFPN(ABC, nn.Module):
         into a network that uses fixed point iterations to forward prop,
         and backprops only through through final "step" of network,
         once it approximatley reaches a fixed point. That is,
-
             forward(d) = map_latent_to_inference(u),
-
         where u approximately satisfies the fixed point condition
-
             u = latent_space_forward(u, data_space_forward(d)).
-
         Users must define each of these three functions called in forward,
         and the forward method is defined already in terms of these.
     """
@@ -49,7 +45,6 @@ class LFPN(ABC, nn.Module):
     def s_hi(self) -> float:
         """ Largest singular value for nn.Linear mappings
             that depend only on d and do *not* depend on u.
-
             Note: All nn.Linear mappings that have inputs of
                   size self.lat_dim() are set have singular values
                   bounded by 1.0. This ensures convergence of the
@@ -69,7 +64,6 @@ class LFPN(ABC, nn.Module):
     def latent_space_forward(self, u: torch.tensor,
                              v: torch.tensor) -> torch.tensor:
         """ Fixed point mapping inside the latent space.
-
             In practice, v = data_space_forward(d) is used to save
             the unnecessary computational cost of recomputing
             data_space_forward(d) in each fixed point update.
@@ -92,7 +86,6 @@ class LFPN(ABC, nn.Module):
         """ Threshold the singular values of the nn.Linear mappings to be
             be bounded by 1.0 if the layer depends on u and s_hi
             otherwise.
-
             Note: We highly recommend using nn.utils.spectral_norm for
                   convolutional layers, which will automatically make
                   those layers 1-Lipschitz.
@@ -109,17 +102,11 @@ class LFPN(ABC, nn.Module):
     def forward(self, d: torch.tensor, eps: float = EPS_DEFAULT,
                 max_depth: int = DEPTH_DEFAULT) -> torch.tensor:
         """ Network inferences satisfy
-
                 forward(d) = map_latent_to_inference(u),
-
             where u approximately satisfies the fixed point condition
-
                 u = latent_space_forward(u, data_space_forward(d)).
-
             To obtain the fixed point, we use the iteration
-
                 u <-- latent_space_forward(u, d),
-
             where we assume users will design the forward step to yield
             a contractive operator with respect to u.
         """
@@ -131,18 +118,15 @@ class LFPN(ABC, nn.Module):
         latent_data = self.data_space_forward(d)
         depth = 0.0
         u = torch.zeros((d.size()[0], self.lat_dim()), device=self.device())
-        u_prev = u.clone()
-        indices = np.array(range(len(u[:, 0])))
-        # Mask shows not converged 'nc' samples (False = converged)
-        nc = np.ones((1, u[:, 0].size()[0]), dtype=bool)
-        nc = nc.reshape((nc.shape[1]))
+        u_prev = np.Inf*torch.ones(u.shape, device = self.device())
+
+
         with torch.no_grad():
-            while nc.any() > 0 and depth < max_depth:
+            while torch.max(torch.norm(u - u_prev, dim=1)) > eps and depth < max_depth:
                 u_prev = u.clone()
                 u = self.latent_space_forward(u, latent_data)
-                nc[nc > 0] = [torch.norm(u[i, :] - u_prev[i, :]) > eps
-                              for i in indices[nc > 0]]
                 depth += 1.0
+
         if depth >= max_depth:
             print("\nWarning: Max Depth Reached - Break Forward Loop\n")
 
