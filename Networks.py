@@ -130,18 +130,15 @@ class LFPN(ABC, nn.Module):
         latent_data = self.data_space_forward(d)
         depth = 0.0
         u = torch.zeros((d.size()[0], self.lat_dim()), device=self.device())
-        u_prev = u.clone()
-        indices = np.array(range(len(u[:, 0])))
-        # Mask shows not converged 'nc' samples (False = converged)
-        nc = np.ones((1, u[:, 0].size()[0]), dtype=bool)
-        nc = nc.reshape((nc.shape[1]))
+        u_prev = np.Inf*torch.ones(u.shape, device = self.device())
+
+
         with torch.no_grad():
-            while nc.any() > 0 and depth < max_depth:
+            while torch.max(torch.norm(u - u_prev, dim=1)) > eps and depth < max_depth:
                 u_prev = u.clone()
                 u = self.latent_space_forward(u, latent_data)
-                nc[nc > 0] = [torch.norm(u[i, :] - u_prev[i, :]) > eps
-                              for i in indices[nc > 0]]
                 depth += 1.0
+
         if depth >= max_depth:
             print("\nWarning: Max Depth Reached - Break Forward Loop\n")
 
