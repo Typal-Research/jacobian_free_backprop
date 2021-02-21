@@ -141,7 +141,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         # ---------------------------------------------------------------------
         # Save weights every 10 epochs
         # ---------------------------------------------------------------------
-        if (epoch + 1) % 10 == 0 and test_acc > best_test_acc:
+        if test_acc > best_test_acc:
             best_test_acc = test_acc
             state = {
                 'test_loss_hist': test_loss_hist,

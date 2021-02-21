@@ -5,6 +5,7 @@ import numpy as np
 
 EPS_DEFAULT = 1.0e-5
 MAX_DEPTH_DEFAULT = 500
+MAX_SVD_ATTEMPTS = 10
 
 
 class FPN(ABC, nn.Module):
@@ -84,6 +85,7 @@ class FPN(ABC, nn.Module):
         """ Threshold the singular values of the nn.Linear mappings to be
             be bounded by 1.0 if the layer depends on u and s_hi
             otherwise.
+
             Note: We highly recommend using nn.utils.spectral_norm for
                   convolutional layers, which will automatically make
                   those layers 1-Lipschitz.
@@ -93,7 +95,19 @@ class FPN(ABC, nn.Module):
                 is_lat_space_op = mod.weight.data.size()[0] == self.lat_dim() \
                                 and mod.weight.data.size()[1] == self.lat_dim()
                 s_hi = 1.0 if is_lat_space_op else self.s_hi()
-                u, s, v = torch.svd(mod.weight.data)
+                svd_attempts = 0
+                compute_svd = False
+                while not compute_svd and svd_attempts < MAX_SVD_ATTEMPTS:
+                    try:
+                        u, s, v = torch.svd(mod.weight.data)
+                        compute_svd = True
+                    except RuntimeError as e:
+                        if 'SBDSDC did not converge' in str(e):
+                            print('\nWarning: torch.svd() did not converge. ' +
+                                  'Adding Gaussian noise and retrying.\n')
+                            mat_size = mod.weight.data.size()
+                            mod.weight.data += 1.0e-2 * torch.randn(mat_size)
+                            svd_attempts += 1
                 s[s > s_hi] = s_hi
                 mod.weight.data = torch.mm(torch.mm(u, torch.diag(s)), v.t())
 
