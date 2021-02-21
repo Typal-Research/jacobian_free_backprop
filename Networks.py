@@ -92,9 +92,9 @@ class LFPN(ABC, nn.Module):
         """
         for mod in self.modules():
             if type(mod) == nn.Linear:
-                lat_space_op = mod.weight.data.size()[0] == self.lat_dim() \
-                               and mod.weight.data.size()[1] == self.lat_dim()
-                s_hi = 1.0 if lat_space_op else self.s_hi()
+                is_lat_space_op = mod.weight.data.size()[0] == self.lat_dim() \
+                                and mod.weight.data.size()[1] == self.lat_dim()
+                s_hi = 1.0 if is_lat_space_op else self.s_hi()
                 u, s, v = torch.svd(mod.weight.data)
                 s[s > s_hi] = s_hi
                 mod.weight.data = torch.mm(torch.mm(u, torch.diag(s)), v.t())
@@ -107,7 +107,7 @@ class LFPN(ABC, nn.Module):
                 u = latent_space_forward(u, data_space_forward(d)).
             To obtain the fixed point, we use the iteration
                 u <-- latent_space_forward(u, d),
-            where we assume users will design the forward step to yield
+            where we assume users design the forward step to yield
             a contractive operator with respect to u.
         """
         train_state = self.training
@@ -118,14 +118,15 @@ class LFPN(ABC, nn.Module):
         latent_data = self.data_space_forward(d)
         depth = 0.0
         u = torch.zeros((d.size()[0], self.lat_dim()), device=self.device())
-        u_prev = np.Inf*torch.ones(u.shape, device = self.device())
-
+        u_prev = np.Inf*torch.ones(u.shape, device=self.device())
 
         with torch.no_grad():
-            while torch.max(torch.norm(u - u_prev, dim=1)) > eps and depth < max_depth:
+            all_samp_conv = False
+            while not all_samp_conv and depth < max_depth:
                 u_prev = u.clone()
                 u = self.latent_space_forward(u, latent_data)
                 depth += 1.0
+                all_samp_conv = torch.max(torch.norm(u - u_prev, dim=1)) <= eps
 
         if depth >= max_depth:
             print("\nWarning: Max Depth Reached - Break Forward Loop\n")
