@@ -58,13 +58,14 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
     fmt += '{:6.2e}) | depth = {:4.1f} | lr = {:5.1e} | time = {:4.1f} sec'
 
-    loss_ave = 0.0
-    depth_ave = 0.0
-    train_acc = 0.0
-    best_test_acc = 0.0
+    depth_ave       = 0.0
+    train_acc       = 0.0
+    best_test_acc   = 0.0
 
-    test_loss_hist = []
-    test_acc_hist = []
+    test_loss_hist  = []
+    test_acc_hist   = []
+    train_loss_hist = []
+    train_acc_hist  = []
 
     print(net)
     print(model_params(net))
@@ -72,6 +73,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
 
     for epoch in range(num_epochs):
         sleep(0.5)  # slows progress bar so it won't print on multiple lines
+        loss_ave        = 0.0
         epoch_start_time = time.time()
         tot = len(train_loader)
         with tqdm(total=tot, unit=" batch", leave=False, ascii=True) as tepoch:
@@ -105,7 +107,6 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 else:
                     print("Error: Invalid Loss Function")
                 loss_val = output.detach().cpu().numpy() * batch_size
-                # loss_ave = 0.99 * loss_ave + 0.01 * loss_val
                 loss_ave += loss_val
                 output.backward()
                 optimizer.step()
@@ -133,13 +134,16 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
 
         test_loss_hist.append(test_loss)
         test_acc_hist.append(test_acc)
+        train_loss_hist.append(loss_ave)
+        train_acc_hist.append(train_acc)
 
         print(fmt.format(epoch+1, num_epochs, train_acc, loss_ave,
                          test_acc, test_loss, depth_ave,
                          optimizer.param_groups[0]['lr'],
                          time.time() - epoch_start_time))
+        
         # ---------------------------------------------------------------------
-        # Save weights every 10 epochs
+        # Save weights 
         # ---------------------------------------------------------------------
         if test_acc > best_test_acc:
             best_test_acc = test_acc
@@ -153,6 +157,23 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
             file_name = save_dir + 'FPN_' + net.name() + '_weights.pth'
             torch.save(state, file_name)
             print('Model weights saved to ' + file_name)
+
+        # ---------------------------------------------------------------------
+        # Save history at last epoch
+        # ---------------------------------------------------------------------
+        if epoch+1 == num_epochs:
+            state = {
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist,
+                'train_loss_hist': train_loss_hist,
+                'train_acc_hist': train_acc_hist,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler
+            }
+            file_name = save_dir + 'FPN_' + net.name() + '_history.pth'
+            torch.save(state, file_name)
+            print('Training history saved to ' + file_name)
+
 
         lr_scheduler.step()
         epoch_start_time = time.time()
