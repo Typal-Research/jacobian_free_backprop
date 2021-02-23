@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 from FPN import FPN
 
@@ -58,23 +57,19 @@ class CIFAR10_CNN(FPN):
 
 
 class MNIST_FCN(FPN):
-    def __init__(self, lat_dim, device, s_hi=1.0, inf_dim=10):
+    def __init__(self, lat_dim, s_hi=1.0, inf_dim=10):
         super().__init__()
         self.fc_d = nn.Linear(784,          95, bias=True)
         self.fc_v = nn.Linear(95,      lat_dim, bias=True)
         self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
+        self.fc_f = nn.Linear(lat_dim,      10, bias=False)
         self.relu = nn.ReLU()
         self._lat_dim = lat_dim
         self._inf_dim = inf_dim
         self._s_hi = s_hi
-        self._device = device
-        self.dropout = nn.Dropout(p=0.02)
 
     def name(self):
         return 'MNIST_FCN'
-
-    def device(self):
-        return self._device
 
     def lat_dim(self):
         return self._lat_dim
@@ -86,15 +81,14 @@ class MNIST_FCN(FPN):
         return self._s_hi
 
     def data_space_forward(self, d):
-        v = self.relu(self.dropout(self.fc_d(d.float())))
-        v = self.relu(self.fc_v(v))
-        return v
+        v = self.relu(self.fc_d(d.float()))
+        return self.relu(self.fc_v(v))
 
     def latent_space_forward(self, u, v):
-        return 0.8 * self.fc_u(self.relu(u) + v)
+        return 0.9 * self.relu(self.fc_u(self.relu(u) + v))
 
     def map_latent_to_inference(self, u):
-        return u[:, 0:10]
+        return self.fc_f(u)
 
 
 class MNIST_CNN(FPN):
@@ -102,23 +96,22 @@ class MNIST_CNN(FPN):
         super().__init__()
         self.maxpool = nn.MaxPool2d(kernel_size=2)
         self.relu = nn.ReLU()
-        self.fc_y = nn.Linear(1250,    lat_dim, bias=False)
+        self.fc_y = nn.Linear(1000,    lat_dim, bias=True)
         self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
-        self.fc_y = nn.Linear(lat_dim, lat_dim, bias=False)
+        self.fc_f = nn.Linear(lat_dim, 10, bias=False)
         self._lat_dim = lat_dim
         self._device = device
         self._s_hi = s_hi
-        self.drop_out = nn.Dropout(p=0.4)
-        self.conv1 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=1,
-                                                            out_channels=85,
-                                                            kernel_size=3,
-                                                            stride=1),
-                                                  n_power_iterations=10)
-        self.conv2 = torch.nn.utils.spectral_norm(nn.Conv2d(in_channels=85,
-                                                            out_channels=50,
-                                                            kernel_size=3,
-                                                            stride=1),
-                                                  n_power_iterations=10)
+        self.drop_out = nn.Dropout(p=0.5)
+        self.soft_max = nn.Softmax(dim=1)
+        self.conv1 = nn.Conv2d(in_channels=1,
+                               out_channels=96,
+                               kernel_size=3,
+                               stride=1)
+        self.conv2 = nn.Conv2d(in_channels=96,
+                               out_channels=40,
+                               kernel_size=3,
+                               stride=1)
 
     def name(self):
         return 'MNIST_CNN'
@@ -133,47 +126,35 @@ class MNIST_CNN(FPN):
         return self._s_hi
 
     def latent_space_forward(self, u, v):
-        u = 0.9 * self.fc_u(self.relu(u) + v)
-        return u
+        return self.relu(self.fc_u(0.99 * u + v))
 
     def data_space_forward(self, d):
-        v = self.maxpool(self.relu(self.conv1(d)))
+        v = self.maxpool(self.relu(self.drop_out(self.conv1(d))))
         v = self.maxpool(self.relu(self.drop_out(self.conv2(v))))
         v = v.view(d.shape[0], -1)
-        v = self.relu(self.fc_y(v))
-        return v
+        return self.relu(self.fc_y(v))
 
     def map_latent_to_inference(self, u):
-        return self.relu(self.fc_f(u))
-
+        return self.fc_f(u)
 
 
 class SVHN_CNN(FPN):
     def __init__(self, lat_dim, device, s_hi=1.0, inf_dim=10):
         super().__init__()
-        self.maxpool    = nn.MaxPool2d(kernel_size=2)
-        self._lat_dim   = lat_dim
-        self._inf_dim   = inf_dim
-        self._s_hi      = s_hi
-        self._device    = device
+        self.maxpool = nn.MaxPool2d(kernel_size=2)
+        self._lat_dim = lat_dim
+        self._inf_dim = inf_dim
+        self._s_hi = s_hi
+        self._device = device
+        self.relu = nn.LeakyReLU(0.1)
+        self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=30,
+                               kernel_size=5, stride=1)
+        self.conv2 = nn.Conv2d(in_channels=30, out_channels=48,
+                               kernel_size=5, stride=1)
+        self.fc_input1 = nn.Linear(in_features=1200, out_features=lat_dim)
 
-        self.relu       = nn.LeakyReLU(0.1)
-
-        #------------------------------------------------
-        # layers for signals (hidden features)
-        #------------------------------------------------
-        self.fc_u = nn.Linear(lat_dim,lat_dim, bias=False)
-
-        #------------------------------------------------
-        # layers for image (input features)
-        #------------------------------------------------
-        self.conv1          = nn.Conv2d(in_channels=3, out_channels=30, kernel_size=5, stride=1)
-        self.conv2          = nn.Conv2d(in_channels=30, out_channels=48, kernel_size=5, stride=1)
-        self.fc_input1      = nn.Linear(in_features=1200, out_features=lat_dim)
-
-        self.fc_final       = nn.Linear(lat_dim, 10)
-        
-        
+        self.fc_final = nn.Linear(lat_dim, 10)
 
     def name(self):
         return 'SVHN_CNN'
@@ -212,7 +193,7 @@ class SVHN_CNN(FPN):
         # ------------------------
         # Map back to 10-dim space
         # ------------------------
-        v = v.view(current_batch_size,-1) 
+        v = v.view(current_batch_size, -1)
         v = self.fc_input1(v)
         v = self.relu(v)
         return v
