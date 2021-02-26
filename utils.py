@@ -62,10 +62,14 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
     train_acc       = 0.0
     best_test_acc   = 0.0
 
+    total_time    = 0.0
+    time_hist     = []
+
     test_loss_hist  = []
     test_acc_hist   = []
     train_loss_hist = []
     train_acc_hist  = []
+
 
     print(net)
     print(model_params(net))
@@ -137,10 +141,16 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         train_loss_hist.append(loss_ave)
         train_acc_hist.append(train_acc)
 
+        epoch_end_time = time.time()
+        time_epoch = epoch_end_time - epoch_start_time
+
+        time_hist.append(time_epoch)
+        total_time += time_epoch 
+
         print(fmt.format(epoch+1, num_epochs, train_acc, loss_ave,
                          test_acc, test_loss, depth_ave,
                          optimizer.param_groups[0]['lr'],
-                         time.time() - epoch_start_time))
+                         time_epoch))
         
         # ---------------------------------------------------------------------
         # Save weights 
@@ -161,14 +171,16 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         # ---------------------------------------------------------------------
         # Save history at last epoch
         # ---------------------------------------------------------------------
+
         if epoch+1 == num_epochs:
             state = {
                 'test_loss_hist': test_loss_hist,
                 'test_acc_hist': test_acc_hist,
                 'train_loss_hist': train_loss_hist,
                 'train_acc_hist': train_acc_hist,
-                'optimizer_state_dict': optimizer.state_dict(),
-                'lr_scheduler': lr_scheduler
+                'lr_scheduler': lr_scheduler,
+                'time_hist': time_hist,
+                'eps': eps,
             }
             file_name = save_dir + 'FPN_' + net.name() + '_history.pth'
             torch.save(state, file_name)
