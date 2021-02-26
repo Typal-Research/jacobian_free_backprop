@@ -93,9 +93,9 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 if net.name() == "MNIST_FCN":
                     d = d.view(d.size()[0], 784).to(net.device())
 
-                ut = torch.zeros((d.size()[0], num_classes)).to(net.device())
-                for i in range(d.size()[0]):
-                    ut[i, labels[i].cpu().numpy()] = 1.0
+                    ut = torch.zeros((d.size()[0], num_classes)).to(net.device())
+                    for i in range(d.size()[0]):
+                        ut[i, labels[i].cpu().numpy()] = 1.0
                 # -------------------------------------------------------------
                 # Apply network to get fixed point and then backprop
                 # -------------------------------------------------------------
