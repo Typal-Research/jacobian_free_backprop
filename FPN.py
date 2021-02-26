@@ -106,7 +106,8 @@ class FPN(ABC, nn.Module):
                             print('\nWarning: torch.svd() did not converge. ' +
                                   'Adding Gaussian noise and retrying.\n')
                             mat_size = mod.weight.data.size()
-                            mod.weight.data += 1.0e-2 * torch.randn(mat_size)
+                            noise = torch.randn(mat_size, device=self.device())
+                            mod.weight.data += 1.0e-2 * noise
                             svd_attempts += 1
                 s[s > s_hi] = s_hi
                 mod.weight.data = torch.mm(torch.mm(u, torch.diag(s)), v.t())

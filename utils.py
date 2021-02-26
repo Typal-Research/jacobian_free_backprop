@@ -141,9 +141,9 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                          test_acc, test_loss, depth_ave,
                          optimizer.param_groups[0]['lr'],
                          time.time() - epoch_start_time))
-        
+
         # ---------------------------------------------------------------------
-        # Save weights 
+        # Save weights
         # ---------------------------------------------------------------------
         if test_acc > best_test_acc:
             best_test_acc = test_acc
@@ -173,7 +173,6 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
             file_name = save_dir + 'FPN_' + net.name() + '_history.pth'
             torch.save(state, file_name)
             print('Training history saved to ' + file_name)
-
 
         lr_scheduler.step()
         epoch_start_time = time.time()
