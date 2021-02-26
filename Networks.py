@@ -142,19 +142,31 @@ class SVHN_CNN(FPN):
     def __init__(self, lat_dim, device, s_hi=1.0, inf_dim=10):
         super().__init__()
         self.maxpool = nn.MaxPool2d(kernel_size=2)
-        self._lat_dim = lat_dim
+        self._lat_dim  = lat_dim
         self._inf_dim = inf_dim
         self._s_hi = s_hi
-        self._device = device
-        self.relu = nn.LeakyReLU(0.1)
-        self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=30,
-                               kernel_size=5, stride=1)
-        self.conv2 = nn.Conv2d(in_channels=30, out_channels=48,
-                               kernel_size=5, stride=1)
-        self.fc_input1 = nn.Linear(in_features=1200, out_features=lat_dim)
+        self._device = device        
+        self.dropout = nn.Dropout2d(p=0.0)
 
-        self.fc_final = nn.Linear(lat_dim, 10)
+        self.relu = nn.LeakyReLU(0.1)
+        self.softmax = nn.Softmax(dim = 1)
+
+        #------------------------------------------------
+        # layers for signals (hidden features)
+        #------------------------------------------------
+        self.fc_u1 = nn.Linear(lat_dim,lat_dim, bias=True)
+        self.fc_u2 = nn.Linear(lat_dim,lat_dim, bias=False)
+
+        #------------------------------------------------
+        # layers for image (input features)
+        #------------------------------------------------
+        self.conv1      = nn.Conv2d(in_channels=3, out_channels=30, kernel_size=5, stride=1)
+        self.conv2      = nn.Conv2d(in_channels=30, out_channels=40, kernel_size=5, stride=1)
+        self.fc_input1  = nn.Linear(in_features=1000, out_features=lat_dim)
+
+        self.fc_final   = nn.Linear(lat_dim, 10)
+        
+        
 
     def name(self):
         return 'SVHN_CNN'
@@ -169,8 +181,9 @@ class SVHN_CNN(FPN):
         return self._s_hi
 
     def latent_space_forward(self, u, v):
-        u = self.fc_u(self.relu(u))
-        output = 0.5*u + v
+        u = self.fc_u1(self.relu(u))
+        u = self.fc_u2(self.relu(u))
+        output = 0.99*u + v
         return output
 
     def data_space_forward(self, d):
@@ -180,6 +193,7 @@ class SVHN_CNN(FPN):
         # First Convolution Block
         # ------------------------
         v = self.conv1(d)
+        v = self.dropout(v)
         v = self.relu(v)
         v = self.maxpool(v)
 
@@ -187,16 +201,17 @@ class SVHN_CNN(FPN):
         # Second Convolution Block
         # ------------------------
         v = self.conv2(v)
+        v = self.dropout(v)
         v = self.relu(v)
         v = self.maxpool(v)
 
         # ------------------------
         # Map back to 10-dim space
         # ------------------------
-        v = v.view(current_batch_size, -1)
+        v = v.view(current_batch_size,-1) 
         v = self.fc_input1(v)
         v = self.relu(v)
         return v
 
     def map_latent_to_inference(self, u):
-        return self.fc_final(u)
+        return self.softmax(self.fc_final(u))
