@@ -131,7 +131,6 @@ def compute_fixed_point(T, Qd, max_depth, device):
           T.bound_lipschitz_constants()
 
         T.eval()
-        latent_data = Qd
         depth = 0.0
         u = torch.zeros(Qd.shape[0], T.lat_dim(), device = device)
         u_prev = u.clone()
@@ -141,7 +140,7 @@ def compute_fixed_point(T, Qd, max_depth, device):
             all_samp_conv = False
             while not all_samp_conv and depth < max_depth:
                 u_prev = u.clone()
-                u = T.latent_space_forward(u, latent_data)
+                u = T.latent_space_forward(u, Qd)
                 depth += 1.0
                 all_samp_conv = torch.max(torch.norm(u - u_prev, dim=1)) <= eps
         # if depth >= max_depth:c
@@ -191,7 +190,7 @@ lat_dim     = 46
 s_hi        = 1.0
 T           = MNIST_CNN(lat_dim, device, s_hi=s_hi).to(device)
 num_classes = 10
-eps = 1.0e-4
+eps = 1.0e-6
 max_depth = 500
 
 #-------------------------------------------------------------------------------
