@@ -84,7 +84,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
 
             tepoch.set_description("[{:3d}/{:3d}]".format(epoch+1, num_epochs))
 
-            for idx, (d, labels) in enumerate(train_loader):
+            for _, (d, labels) in enumerate(train_loader):
                 labels = labels.to(net.device())
                 d = d.to(net.device())
 
@@ -99,7 +99,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 optimizer.zero_grad()
                 y = net(d, eps=eps, max_depth=depth)
 
-                depth_ave = max(net.depth, depth_ave)
+                depth_ave = 0.99 * depth_ave + 0.01 * net.depth
                 output = None
                 if str(loss) == "MSELoss()":
                     
@@ -136,7 +136,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                                                  loss,
                                                  num_classes,
                                                  eps,
-                                                 depth)
+                                                 depth_ave)
 
         test_loss_hist.append(test_loss)
         test_acc_hist.append(test_acc)
