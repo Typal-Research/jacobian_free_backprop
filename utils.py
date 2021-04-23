@@ -8,6 +8,8 @@ from tqdm import tqdm
 def get_stats(net, test_loader, loss, num_classes, eps, depth):
     test_loss = 0
     correct = 0
+
+    net.eval()
     with torch.no_grad():
         for d_test, labels in test_loader:
             labels = labels.to(net.device())
@@ -35,6 +37,8 @@ def get_stats(net, test_loader, loss, num_classes, eps, depth):
 
     test_loss /= len(test_loader.dataset)
     test_acc = 100. * correct/len(test_loader.dataset)
+
+    net.train()
 
     return test_loss, test_acc, correct
 
