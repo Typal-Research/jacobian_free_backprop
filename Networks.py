@@ -1,217 +1,1728 @@
+import torch
 import torch.nn as nn
 from FPN import FPN
+import numpy as np
+import torch.nn.functional as F
 
+classification = torch.tensor
+latent_variable = torch.tensor
+image = torch.tensor 
 
-class CIFAR10_CNN(FPN):
-    def __init__(self, lat_dim, device, s_hi=1.0, inf_dim=10):
+# ------------------------------------------------------------------------------------------------
+# MNIST Architectures
+# ------------------------------------------------------------------------------------------------
+
+class MNIST_FPN(nn.Module):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1):
         super().__init__()
-        self.maxpool = nn.MaxPool2d(kernel_size=2)
-        self.relu = nn.ReLU()
-        self._lat_dim = lat_dim
-        self._inf_dim = inf_dim
-        self._s_hi = s_hi
-        self._device = device
-        self.dropout = nn.Dropout(p=0.5)
 
-        self._dim_out1 = 80
-        self._dim_out2 = 90
-        self._dim_out3 = 100
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.2)
+        self.mom = momentum
+        self.max_pool = nn.MaxPool2d(kernel_size=3)
 
-        self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=self._dim_out1,
-                               kernel_size=3, stride=1)
-        self.conv2 = nn.Conv2d(in_channels=self._dim_out1,
-                               out_channels=self._dim_out2, kernel_size=3,
-                               stride=1)
-        self.conv3 = nn.Conv2d(in_channels=self._dim_out2,
-                               out_channels=self._dim_out3, kernel_size=3,
-                               stride=1)
-        self.fc_v = nn.Linear(in_features=self._dim_out3 * 4,
-                              out_features=lat_dim, bias=True)
+        self.channel_dim = 32
 
-    def name(self):
-        return 'CIFAR10_CNN'
+        self.conv_d1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=True)
+        self.conv_d2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1, bias=True)
 
-    def device(self):
-        return self._device
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
 
-    def lat_dim(self):
-        return self._lat_dim
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(784, 10, bias=False)
 
-    def s_hi(self):
-        return self._s_hi
-
-    def latent_space_forward(self, u, v):
-        return self.fc_u(0.99 * self.relu(u) + v)
-
-    def data_space_forward(self, d):
-        current_batch_size = d.shape[0]
-        v = self.maxpool(self.relu(self.conv1(d)))
-        v = self.maxpool(self.relu(self.dropout(self.conv2(v))))
-        v = self.maxpool(self.relu(self.conv3(v)))
-        v = v.view(current_batch_size, -1)
-        return self.relu(self.fc_v(v))
-
-    def map_latent_to_inference(self, u):
-        return u[:, 0:10]
-
-
-class MNIST_FCN(FPN):
-    def __init__(self, lat_dim, s_hi=1.0, inf_dim=10):
-        super().__init__()
-        self.fc_d = nn.Linear(784,          95, bias=True)
-        self.fc_v = nn.Linear(95,      lat_dim, bias=True)
-        self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
-        self.fc_f = nn.Linear(lat_dim,      10, bias=False)
-        self.relu = nn.ReLU()
-        self._lat_dim = lat_dim
-        self._inf_dim = inf_dim
-        self._s_hi = s_hi
-
-    def name(self):
-        return 'MNIST_FCN'
-
-    def lat_dim(self):
-        return self._lat_dim
-
-    def inf_dim(self):
-        return self._inf_dim
-
-    def s_hi(self):
-        return self._s_hi
-
-    def data_space_forward(self, d):
-        v = self.relu(self.fc_d(d.float()))
-        return self.relu(self.fc_v(v))
-
-    def latent_space_forward(self, u, v):
-        return 0.9 * self.relu(self.fc_u(self.relu(u) + v))
-
-    def map_latent_to_inference(self, u):
-        return self.fc_f(u)
-
-
-class MNIST_CNN(FPN):
-    def __init__(self, lat_dim, device, s_hi=1.0):
-        super().__init__()
-        self.maxpool = nn.MaxPool2d(kernel_size=2)
-        self.relu = nn.ReLU()
-        self.fc_y = nn.Linear(1000,    lat_dim, bias=True)
-        self.fc_u = nn.Linear(lat_dim, lat_dim, bias=False)
-        self.fc_f = nn.Linear(lat_dim, 10, bias=False)
-        self._lat_dim = lat_dim
-        self._device = device
-        self._s_hi = s_hi
-        self.drop_out = nn.Dropout(p=0.5)
-        self.soft_max = nn.Softmax(dim=1)
-        self.conv1 = nn.Conv2d(in_channels=1,
-                               out_channels=96,
-                               kernel_size=3,
-                               stride=1)
-        self.conv2 = nn.Conv2d(in_channels=96,
-                               out_channels=40,
-                               kernel_size=3,
-                               stride=1)
-
-    def name(self):
-        return 'MNIST_CNN'
-
-    def device(self):
-        return self._device
-
-    def lat_dim(self):
-        return self._lat_dim
-
-    def s_hi(self):
-        return self._s_hi
-
-    def latent_space_forward(self, u, v):
-        return self.relu(self.fc_u(0.99 * u + v))
-
-    def data_space_forward(self, d):
-        v = self.maxpool(self.relu(self.drop_out(self.conv1(d))))
-        v = self.maxpool(self.relu(self.drop_out(self.conv2(v))))
-        v = v.view(d.shape[0], -1)
-        return self.relu(self.fc_y(v))
-
-    def map_latent_to_inference(self, u):
-        return self.fc_f(u)
-
-
-class SVHN_CNN(FPN):
-    def __init__(self, lat_dim, device, s_hi=1.0, inf_dim=10):
-        super().__init__()
-        self.maxpool = nn.MaxPool2d(kernel_size=2)
-        self._lat_dim  = lat_dim
-        self._inf_dim = inf_dim
-        self._s_hi = s_hi
-        self._device = device        
-        self.dropout = nn.Dropout2d(p=0.0)
-
-        self.relu = nn.LeakyReLU(0.1)
-        self.softmax = nn.Softmax(dim = 1)
-
-        #------------------------------------------------
-        # layers for signals (hidden features)
-        #------------------------------------------------
-        self.fc_u1 = nn.Linear(lat_dim,lat_dim, bias=True)
-        self.fc_u2 = nn.Linear(lat_dim,lat_dim, bias=False)
-
-        #------------------------------------------------
-        # layers for image (input features)
-        #------------------------------------------------
-        self.conv1      = nn.Conv2d(in_channels=3, out_channels=30, kernel_size=5, stride=1)
-        self.conv2      = nn.Conv2d(in_channels=30, out_channels=40, kernel_size=5, stride=1)
-        self.fc_input1  = nn.Linear(in_features=1000, out_features=lat_dim)
-
-        self.fc_final   = nn.Linear(lat_dim, 10)
+        self.bn_1 = nn.BatchNorm2d(16)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+                                                           momentum=self.mom,
+                                                           affine=False)
+                                           for _ in range(res_layers)])
         
-        
-
     def name(self):
-        return 'SVHN_CNN'
-
+        return 'MNIST_FPN'
+    
     def device(self):
-        return self._device
+        return next(self.parameters()).data.device
 
-    def lat_dim(self):
-        return self._lat_dim
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
 
-    def s_hi(self):
-        return self._s_hi
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
 
-    def latent_space_forward(self, u, v):
-        u = self.fc_u1(self.relu(u))
-        u = self.fc_u2(self.relu(u))
-        output = 0.99*u + v
-        return output
+        Qd = self.max_pool(self.leaky_relu(self.bn_1(self.conv_d1(d))))
+        Qd = self.leaky_relu(self.bn_2(self.conv_d2(Qd)))
+        return Qd
 
-    def data_space_forward(self, d):
-        current_batch_size = d.shape[0]
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
 
-        # ------------------------
-        # First Convolution Block
-        # ------------------------
-        v = self.conv1(d)
-        v = self.dropout(v)
-        v = self.relu(v)
-        v = self.maxpool(v)
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        # print('uv.shape = ', uv.shape)
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            uv  = self.lat_batch_norm[idx](uv + res)
+        R_uv = self.gamma * uv
+        return R_uv
 
-        # ------------------------
-        # Second Convolution Block
-        # ------------------------
-        v = self.conv2(v)
-        v = self.dropout(v)
-        v = self.relu(v)
-        v = self.maxpool(v)
 
-        # ------------------------
-        # Map back to 10-dim space
-        # ------------------------
-        v = v.view(current_batch_size,-1) 
-        v = self.fc_input1(v)
-        v = self.relu(v)
-        return v
 
-    def map_latent_to_inference(self, u):
-        return self.softmax(self.fc_final(u))
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1) 
+        # print('u.shape = ', u.shape)
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0          
+            Qd = self.data_space_forward(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+                u_prev = u.clone()   
+                u = self.latent_space_forward(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if self.depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self.map_latent_to_inference(self.latent_space_forward(u, self.data_space_forward(d)))
+        else:
+            return self.map_latent_to_inference(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self.latent_space_forward(w, v + noise_v)
+        Ruv = self.latent_space_forward(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor
+
+
+
+
+class MNIST_FPN_Adjoint(nn.Module):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1):
+        super().__init__()
+
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.2)
+        self.mom = momentum
+        self.max_pool = nn.MaxPool2d(kernel_size=3)
+
+        self.channel_dim = 32
+
+        self.conv_d1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=True)
+        self.conv_d2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1, bias=True)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(784, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(16)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        
+    def name(self):
+        return 'MNIST_FPN_Adjoint'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+
+        Qd = self.max_pool(self.leaky_relu(self.bn_1(self.conv_d1(d))))
+        Qd = self.leaky_relu(self.bn_2(self.conv_d2(Qd)))
+        return Qd
+
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1) 
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0          
+            Qd = self.data_space_forward(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+                u_prev = u.clone()   
+                u = self.latent_space_forward(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if self.depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self.map_latent_to_inference(self.latent_space_forward(u, self.data_space_forward(d)))
+        else:
+            return self.map_latent_to_inference(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self.latent_space_forward(w, v + noise_v)
+        Ruv = self.latent_space_forward(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor
+
+class MNIST_FPN_Explicit(nn.Module):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1):
+        super().__init__()
+
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.2)
+        self.mom = momentum
+        self.max_pool = nn.MaxPool2d(kernel_size=3)
+
+        self.channel_dim = 32
+
+        self.conv_d1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=True)
+        self.conv_d2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1, bias=True)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(784, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(16)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+                                                           momentum=self.mom,
+                                                           affine=False)
+                                           for _ in range(res_layers)])
+        
+    def name(self):
+        return 'MNIST_FPN_Explicit'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+
+        Qd = self.max_pool(self.leaky_relu(self.bn_1(self.conv_d1(d))))
+        Qd = self.leaky_relu(self.bn_2(self.conv_d2(Qd)))
+        return Qd
+
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        # print('uv.shape = ', uv.shape)
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            uv  = self.lat_batch_norm[idx](uv + res)
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1) 
+        # print('u.shape = ', u.shape)
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+
+        self.depth = 0.0
+
+        Qd = self.data_space_forward(d)
+        u = torch.zeros(Qd.shape, device=self.device())
+        Ru = self.latent_space_forward(u, Qd)
+        return self.map_latent_to_inference(Ru) 
+
+
+# ------------------------------------------------------------------------------------------------
+# SVHN Architectures
+# ------------------------------------------------------------------------------------------------
+class BasicBlock(nn.Module):
+    """
+        Block architecture borrowed for ResNets. Each block defines the ResNet operator.
+    """
+    expansion = 1
+
+    def __init__(self, in_planes, planes, stride=1, option='A'):
+        super(BasicBlock, self).__init__()
+        self.drop_out = nn.Dropout2d(0.1)
+        self.conv_d1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv_d2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+
+        self.leakyrelu = nn.LeakyReLU(0.1)
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != planes:
+            if option == 'A':
+                self.shortcut = LambdaLayer(lambda x:
+                                            F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, planes//4, planes//4), "constant", 0))
+            elif option == 'B':
+                self.shortcut = nn.Sequential(
+                     nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                     nn.BatchNorm2d(self.expansion * planes)
+                )
+
+    def forward(self, x):
+        out = self.drop_out(self.leakyrelu(self.bn1(self.conv_d1(x))))
+        out = self.drop_out(self.bn2(self.conv_d2(out)))
+        out += self.shortcut(x)
+        out = self.leakyrelu(out)
+        return out
+
+def _weights_init(m):
+    """
+        Initialize weights as in KaimingHe 2015
+    """
+    classname = m.__class__.__name__
+    if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        init.kaiming_normal_(m.weight)
+
+class LambdaLayer(nn.Module):
+    def __init__(self, lambd):
+        super(LambdaLayer, self).__init__()
+        self.lambd = lambd
+
+    def forward(self, x):
+        return self.lambd(x)
+
+
+class SVHN_FPN(nn.Module):
+    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.2)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+                                                           momentum=self.mom,
+                                                           affine=False)
+                                           for _ in range(res_layers)])
+        
+ 
+    def name(self):
+        return 'SVHN_FPN'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def _Q(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def _R(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        # print('uv.shape = ', uv.shape)
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            uv  = self.lat_batch_norm[idx](uv + res)
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def _S(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)  
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0          
+            Qd = self._Q(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+                u_prev = u.clone()   
+                u = self._R(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if self.depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self._S(self._R(u, self._Q(d)))
+        else:
+            return self._S(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self._R(w, v + noise_v)
+        Ruv = self._R(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor 
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+
+class SVHN_FPN_Adjoint(nn.Module):
+    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.2)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        #Q 
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        
+ 
+    def name(self):
+        return 'SVHN_FPN_Adjoint'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)  
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0          
+            Qd = self.data_space_forward(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+                u_prev = u.clone()   
+                u = self.latent_space_forward(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self.map_latent_to_inference(self.latent_space_forward(u, self.data_space_forward(d)))
+        else:
+            return self.map_latent_to_inference(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self.latent_space_forward(w, v + noise_v)
+        Ruv = self.latent_space_forward(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor 
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+
+class SVHN_FPN_Explicit(nn.Module):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.1)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        #Q 
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+                                                           momentum=self.mom,
+                                                           affine=False)
+                                           for _ in range(res_layers)])
+        
+ 
+    def name(self):
+        return 'SVHN_FPN_Explicit'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        # print('uv.shape = ', uv.shape)
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            uv  = self.lat_batch_norm[idx](uv + res)
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)  
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+
+        self.depth = 0.0
+
+        Qd = self.data_space_forward(d)
+        u = torch.zeros(Qd.shape, device=self.device())
+        Ru = self.latent_space_forward(u, Qd)
+        return self.map_latent_to_inference(Ru)
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+
+
+
+# ------------------------------------------------------------------------------------------------
+# CIFAR10 Architectures
+# ------------------------------------------------------------------------------------------------
+class CIFAR10_FPN(nn.Module):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.2)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+               
+        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+                                                           momentum=self.mom,
+                                                           affine=False)
+                                           for _ in range(res_layers)])
+        
+ 
+    def name(self):
+        return 'CIFAR10_FPN'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def _Q(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def _R(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            uv  = self.lat_batch_norm[idx](uv + res)
+            
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+    def _S(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        # reduce number of channels
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0
+            Qd = self._Q(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+                u_prev = u.clone()   
+                u = self._R(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if self.depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self._S(self._R(u, self._Q(d)))
+        else:
+            return self._S(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self._R(w, v + noise_v)
+        Ruv = self._R(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor 
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+
+
+class CIFAR10_FPN_Adjoint(nn.Module):
+    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout2d(0.2)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+ 
+    def name(self):
+        return 'CIFAR10_FPN_Adjoint'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        # y = self.avg_pool(u).view(u.size()[0],-1)
+        # for fc in self.label_fcs:
+        #     y = self.leaky_relu(fc(y))
+        # class_label = y
+        # return class_label
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)  
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0
+
+            Qd = self.data_space_forward(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+
+                u_prev = u.clone()   
+                u = self.latent_space_forward(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if self.depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self.map_latent_to_inference(self.latent_space_forward(u, self.data_space_forward(d)))
+        else:
+            return self.map_latent_to_inference(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self.latent_space_forward(w, v + noise_v)
+        Ruv = self.latent_space_forward(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor 
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+
+
+
+class CIFAR10_FPN_Unaugmented(nn.Module):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.1)
+        self.drop_outS = nn.Dropout2d(0.1)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+
+        # self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+        #                                                    momentum=self.mom,
+        #                                                    affine=False)
+        #                                    for _ in range(res_layers)])
+        
+ 
+    def name(self):
+        return 'CIFAR10_FPN_Unaugmented'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def _Q(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def _R(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            # uv  = self.lat_batch_norm[idx](uv + res)
+        
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+    def _S(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0
+            Qd = self._Q(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+                u_prev = u.clone()   
+                u = self._R(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if self.depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self._S(self._R(u, self._Q(d)))
+        else:
+            return self._S(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self._R(w, v + noise_v)
+        Ruv = self._R(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor 
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+
+
+class CIFAR10_FPN_Unaugmented_Adjoint(nn.Module):
+    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.1)
+        self.drop_outS = nn.Dropout2d(0.1)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+ 
+    def name(self):
+        return 'CIFAR10_FPN_Unaugmented_Adjoint'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+        with torch.no_grad():
+            self.depth = 0.0
+
+            Qd = self.data_space_forward(d)
+            u = torch.zeros(Qd.shape, device=self.device())
+            u_prev = np.Inf*torch.ones(u.shape, device=self.device()) 
+            all_samp_conv = False
+            while not all_samp_conv and self.depth < max_depth:
+
+                u_prev = u.clone()   
+                u = self.latent_space_forward(u, Qd)
+                res_norm = torch.max(torch.norm(u - u_prev, dim=1)) 
+                self.depth += 1.0
+                all_samp_conv = res_norm <= eps
+                
+            if self.training:
+                self.normalize_lip_const(u_prev, Qd)
+
+        if self.depth >= max_depth and depth_warning:
+            print("\nWarning: Max Depth Reached - Break Forward Loop\n")
+
+        attach_gradients = self.training
+        if attach_gradients:
+            return self.map_latent_to_inference(self.latent_space_forward(u, self.data_space_forward(d)))
+        else:
+            return self.map_latent_to_inference(u)      
+
+
+
+
+    def normalize_lip_const(self, u: latent_variable, v: latent_variable):
+        ''' Scale convolutions in R to make it gamma Lipschitz
+
+            It should hold that |R(u,v) - R(w,v)| <= gamma * |u-w| for all u
+            and w. If this doesn't hold, then we must rescale the convolution.
+            Consider R = I + Conv. To rescale, ideally we multiply R by
+
+                norm_fact = gamma * |u-w| / |R(u,v) - R(w,v)|,
+            
+            averaged over a batch of samples, i.e. R <-- norm_fact * R. The 
+            issue is that ResNets include an identity operation, which we don't 
+            wish to rescale. So, instead we use
+                
+                R <-- I + norm_fact * Conv,
+            
+            which is accurate up to an identity term scaled by (norm_fact - 1).
+            If we do this often enough, then norm_fact ~ 1.0 and the identity 
+            term is negligible.
+
+            Note: BatchNorm and ReLUs are nonexpansive when...???
+        '''
+        noise_u = torch.randn(u.size(), device=self.device())
+        noise_v = torch.randn(u.size(), device=self.device())
+        w = u.clone() + noise_u
+        Rwv = self.latent_space_forward(w, v + noise_v)
+        Ruv = self.latent_space_forward(u, v + noise_v)
+        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
+        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
+        R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        if not R_is_gamma_lip:
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+
+            for i in range(self._res_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][3].weight.data *= normalize_factor
+                self.latent_convs[i][3].bias.data *= normalize_factor 
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)

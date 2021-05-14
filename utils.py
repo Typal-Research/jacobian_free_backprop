@@ -3,9 +3,13 @@ from prettytable import PrettyTable
 from time import sleep
 import time
 from tqdm import tqdm
+import torchvision.transforms as transforms
+from torch.utils.data         import Dataset, TensorDataset, DataLoader
+from torchvision              import datasets
+import numpy as np
 
 
-def get_stats(net, test_loader, loss, num_classes, eps, depth):
+def get_stats(net, test_loader, criterion, num_classes, eps, depth):
     test_loss = 0
     correct = 0
 
@@ -25,10 +29,10 @@ def get_stats(net, test_loader, loss, num_classes, eps, depth):
 
             y = net(d_test, eps=eps, max_depth=depth)
 
-            if str(loss) == "MSELoss()":
-                test_loss += batch_size * loss(y.double(), ut.double()).item()
-            elif str(loss) == "CrossEntropyLoss()":
-                test_loss += batch_size * loss(y, labels).item()
+            if str(criterion) == "MSELoss()":
+                test_loss += batch_size * criterion(y.double(), ut.double()).item()
+            elif str(criterion) == "CrossEntropyLoss()":
+                test_loss += batch_size * criterion(y, labels).item()
             else:
                 print("Error: Invalid Loss Function")
 
@@ -56,7 +60,7 @@ def model_params(net):
 
 
 def train_class_net(net, num_epochs, lr_scheduler, train_loader,
-                    test_loader, optimizer, loss,
+                    test_loader, optimizer, criterion,
                     num_classes, eps, depth, save_dir='./'):
 
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
@@ -105,15 +109,15 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
 
                 depth_ave = 0.99 * depth_ave + 0.01 * net.depth
                 output = None
-                if str(loss) == "MSELoss()":
+                if str(criterion) == "MSELoss()":
                     
                     ut = torch.zeros((d.size()[0], num_classes)).to(net.device())
                     for i in range(d.size()[0]):
                         ut[i, labels[i].cpu().numpy()] = 1.0
 
-                    output = loss(y.double(), ut.double())
-                elif str(loss) == "CrossEntropyLoss()":
-                    output = loss(y, labels)
+                    output = criterion(y.double(), ut.double())
+                elif str(criterion) == "CrossEntropyLoss()":
+                    output = criterion(y, labels)
                 else:
                     print("Error: Invalid Loss Function")
                 loss_val = output.detach().cpu().numpy() * batch_size
@@ -137,7 +141,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
 
         test_loss, test_acc, correct = get_stats(net,
                                                  test_loader,
-                                                 loss,
+                                                 criterion,
                                                  num_classes,
                                                  eps,
                                                  depth_ave)
@@ -169,7 +173,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler
             }
-            file_name = save_dir + 'FPN_' + net.name() + '_weights.pth'
+            file_name = save_dir + net.name() + '_weights.pth'
             torch.save(state, file_name)
             print('Model weights saved to ' + file_name)
 
@@ -187,10 +191,123 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 'time_hist': time_hist,
                 'eps': eps,
             }
-            file_name = save_dir + 'FPN_' + net.name() + '_history.pth'
+            file_name = save_dir + net.name() + '_history.pth'
             torch.save(state, file_name)
             print('Training history saved to ' + file_name)
 
         lr_scheduler.step()
         epoch_start_time = time.time()
     return net
+
+def mnist_loaders(train_batch_size, test_batch_size=None):
+    if test_batch_size is None:
+        test_batch_size = train_batch_size
+
+    train_loader = train_loader = torch.utils.data.DataLoader(
+                        datasets.MNIST('data',
+                                    train=True,
+                                    download=True,
+                                    transform=transforms.Compose([
+                                        transforms.ToTensor(),
+                                        transforms.Normalize((0.1307,), (0.3081,))
+                                    ])),
+                        batch_size=train_batch_size,
+                        shuffle=True)
+    
+    test_loader = torch.utils.data.DataLoader(
+                        datasets.MNIST('data',
+                                    train=False,
+                                    transform=transforms.Compose([
+                                        transforms.ToTensor(),
+                                        transforms.Normalize((0.1307,), (0.3081,))
+                                    ])),
+                        batch_size=test_batch_size,
+                        shuffle=False)
+    return train_loader, test_loader
+
+
+def svhn_loaders(train_batch_size, test_batch_size=None):
+    if test_batch_size is None:
+        test_batch_size = train_batch_size
+
+    normalize = transforms.Normalize(mean=[0.4377, 0.4438, 0.4728],
+                                      std=[0.1980, 0.2010, 0.1970])
+    train_loader = torch.utils.data.DataLoader(
+            datasets.SVHN(
+                root='data', split='train', download=True,
+                transform=transforms.Compose([
+                    transforms.ToTensor(),
+                    normalize
+                ]),
+            ),
+            batch_size=train_batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.SVHN(
+            root='data', split='test', download=True,
+            transform=transforms.Compose([
+                transforms.ToTensor(),
+                normalize
+            ])),
+        batch_size=test_batch_size, shuffle=False)
+    return train_loader, test_loader
+
+def cifar_loaders(train_batch_size, test_batch_size=None, augment=True):
+    if test_batch_size is None:
+        test_batch_size = train_batch_size
+
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+
+    if augment:
+      transforms_list = [transforms.RandomHorizontalFlip(), 
+                         transforms.RandomCrop(32, 4), 
+                         transforms.ToTensor(), normalize]
+    else:
+        transforms_list = [transforms.ToTensor(),
+                            normalize]
+    train_dataset = datasets.CIFAR10('data',
+                                train=True,
+                                download=True,
+                                transform=transforms.Compose(transforms_list))
+    test_dataset = datasets.CIFAR10('data',
+                                train=False,
+                                transform=transforms.Compose([
+                                    transforms.ToTensor(),
+                                    normalize
+                                ]))
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_batch_size,
+                                                shuffle=True, pin_memory=True)
+
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_batch_size,
+                                                shuffle=False, pin_memory=True)
+
+    return train_loader, test_loader
+
+
+#-------------------------------------------------------------------------------
+# Compute fixed point
+#-------------------------------------------------------------------------------
+def compute_fixed_point(T, Qd, max_depth, device, eps=1e-4):
+
+    depth = 0.0
+    u = torch.zeros(Qd.shape, device=T.device())
+    u_prev = np.Inf*torch.ones(u.shape, device=T.device()) 
+    indices = np.array(range(len(u[:, 0])))
+
+    # approximately normalize weights by lipschitz constant before computing fixed point
+    T.normalize_lip_const(u, Qd)
+
+    T.eval()
+    
+    with torch.no_grad():
+        all_samp_conv = False
+        while not all_samp_conv and depth < max_depth:
+            u_prev = u.clone()
+            u = T.latent_space_forward(u, Qd)
+            depth += 1.0
+            all_samp_conv = torch.max(torch.norm(u - u_prev, dim=1)) <= eps
+
+    T.train()
+            
+    return u, depth
