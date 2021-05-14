@@ -510,8 +510,8 @@ class LambdaLayer(nn.Module):
 
 
 class SVHN_FPN(nn.Module):
-    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
-                 momentum=0.1):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
         super().__init__()
         self.avg_pool = nn.AvgPool2d(kernel_size=2)
         self._channels = num_channels
@@ -692,8 +692,8 @@ class SVHN_FPN(nn.Module):
 
 
 class SVHN_FPN_Adjoint(nn.Module):
-    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
-                 momentum=0.1):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
         super().__init__()
         self.avg_pool = nn.AvgPool2d(kernel_size=2)
         self._channels = num_channels
@@ -1183,8 +1183,8 @@ class CIFAR10_FPN(nn.Module):
 
 
 class CIFAR10_FPN_Adjoint(nn.Module):
-    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
-                 momentum=0.1):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
         super().__init__()
         self.avg_pool = nn.AvgPool2d(kernel_size=2)
         self._channels = num_channels
@@ -1551,8 +1551,8 @@ class CIFAR10_FPN_Unaugmented(nn.Module):
 
 
 class CIFAR10_FPN_Unaugmented_Adjoint(nn.Module):
-    def __init__(self, block, num_blocks, res_layers=4, num_channels=32, contraction_factor=0.1,
-                 momentum=0.1):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
         super().__init__()
         self.avg_pool = nn.AvgPool2d(kernel_size=2)
         self._channels = num_channels
@@ -1717,6 +1717,130 @@ class CIFAR10_FPN_Unaugmented_Adjoint(nn.Module):
                 self.latent_convs[i][0].bias.data *= normalize_factor
                 self.latent_convs[i][3].weight.data *= normalize_factor
                 self.latent_convs[i][3].bias.data *= normalize_factor 
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
+
+class CIFAR10_FPN_Unaugmented_Explicit(nn.Module):
+    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+                 momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
+        super().__init__()
+        self.avg_pool = nn.AvgPool2d(kernel_size=2)
+        self._channels = num_channels
+        self._res_layers = res_layers 
+        self.gamma = contraction_factor   
+        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.drop_outR = nn.Dropout2d(0.1)
+        self.drop_outS = nn.Dropout2d(0.1)
+        self.mom = momentum
+
+        self.channel_dim = 64
+
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.latent_convs = nn.ModuleList([nn.Sequential(nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR,
+                                                   nn.Conv2d(in_channels=num_channels, 
+                                                   out_channels=num_channels, 
+                                                   kernel_size=3, stride=1, 
+                                                   padding=(1,1)),
+                                                   self.leaky_relu,
+                                                   self.drop_outR)
+                                           for _ in range(res_layers)]) 
+
+        self.conv_y  = nn.Conv2d(in_channels = self.channel_dim, out_channels = 16, kernel_size=3, stride=1)
+        self.fc_y    = nn.Linear(576, 10, bias=False)
+
+        self.bn_1 = nn.BatchNorm2d(self.channel_dim)
+        self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        # self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+        #                                                    momentum=self.mom,
+        #                                                    affine=False)
+        #                                    for _ in range(res_layers)])
+        
+ 
+    def name(self):
+        return 'CIFAR10_FPN_Unaugmented_Explicit'
+    
+    def device(self):
+        return next(self.parameters()).data.device
+
+    def data_space_forward(self, d: image) -> latent_variable:
+        ''' Transform images into feature vectors in latent space
+
+            The data space operator does *not* need to be 1-Lipschitz; however, 
+            bounding the singular values can improve generalization. A
+            multiplicative factor is added in each update to control the 
+            Lipschitz constant.          
+        '''
+        Qd = self.leaky_relu(self.bn1(self.conv1(d)))
+        Qd = self.layer1(Qd)
+        Qd = self.layer2(Qd)
+        Qd = self.layer3(Qd)
+        return Qd
+
+    def latent_space_forward(self, u: latent_variable, v: latent_variable) -> latent_variable:
+        ''' Fixed point operator on latent space (when v is fixed)
+
+            R(u,v) is used in fixed point iteration of FPN to find u* satisfying
+            u* = R(u*, v). To make R be a contraction in u, we estimate a 
+            Lipschitz constant and normalize updates using this.
+        '''
+        uv = u + v
+        # print('uv.shape = ', uv.shape)
+        for idx, conv in enumerate(self.latent_convs):
+            res = (self.leaky_relu(conv(uv)))
+            # uv  = self.lat_batch_norm[idx](uv + res)
+        R_uv = self.gamma * uv
+        return R_uv
+
+
+
+    def map_latent_to_inference(self, u: latent_variable) -> classification:
+        ''' Transform feature vectors into a classification
+
+            This is the final step of FPN, which flattens and 
+            then applies affine mappings to input. Operations do *not* need to
+            be 1-Lipschitz.
+        '''
+        
+        u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
+        n_samples = u.shape[0] 
+        u = u.view(n_samples, -1)  
+        y =  self.fc_y(u)
+        return y   
+
+    def forward(self, d: image, eps=1.0e-3, max_depth=100, 
+                depth_warning=False) -> classification:
+        ''' FPN forward prop
+
+            With gradients detached, find fixed point. During forward iteration,
+            u is updated via R(u,Q(d)) and Lipschitz constant estimates are
+            refined. Gradient are attached performing one final step.
+        '''
+
+        self.depth = 0.0
+
+        Qd = self.data_space_forward(d)
+        u = torch.zeros(Qd.shape, device=self.device())
+        Ru = self.latent_space_forward(u, Qd)
+        return self.map_latent_to_inference(Ru)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
