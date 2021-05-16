@@ -16,7 +16,7 @@ device = 'cuda:0'; print('device = ', device)
 num_blocks = [8,8,7]
 contraction_factor = 0.9
 res_layers = 2
-T       = CIFAR10_FPN(block=BasicBlock, num_blocks=num_blocks, res_layers=res_layers, num_channels=64, contraction_factor=contraction_factor).to(device)
+T       = CIFAR10_FPN(res_layers=res_layers, num_channels=64, block=BasicBlock, num_blocks=num_blocks, contraction_factor=contraction_factor).to(device)
 eps     = 1.0e-1
 depth   = 200
 
@@ -24,7 +24,7 @@ depth   = 200
 # Training settings
 #-------------------------------------------------------------------------------
 max_epochs    = 1000
-learning_rate = 5.0e-4 # 5.0e-3
+learning_rate = 5.0e-4 
 weight_decay  = 1e-4
 optimizer     = optim.Adam(T.parameters(), lr=learning_rate, weight_decay=weight_decay)
 lr_scheduler  = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)

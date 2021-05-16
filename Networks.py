@@ -82,7 +82,6 @@ class MNIST_FPN(nn.Module):
             Lipschitz constant and normalize updates using this.
         '''
         uv = u + v
-        # print('uv.shape = ', uv.shape)
         for idx, conv in enumerate(self.latent_convs):
             res = (self.leaky_relu(conv(uv)))
             uv  = self.lat_batch_norm[idx](uv + res)
@@ -102,7 +101,6 @@ class MNIST_FPN(nn.Module):
         u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
         n_samples = u.shape[0] 
         u = u.view(n_samples, -1) 
-        # print('u.shape = ', u.shape)
         y =  self.fc_y(u)
         return y   
 
@@ -414,7 +412,6 @@ class MNIST_FPN_Explicit(nn.Module):
             Lipschitz constant and normalize updates using this.
         '''
         uv = u + v
-        # print('uv.shape = ', uv.shape)
         for idx, conv in enumerate(self.latent_convs):
             res = (self.leaky_relu(conv(uv)))
             uv  = self.lat_batch_norm[idx](uv + res)
@@ -434,7 +431,6 @@ class MNIST_FPN_Explicit(nn.Module):
         u = self.drop_outS(self.leaky_relu(self.conv_y(u)))
         n_samples = u.shape[0] 
         u = u.view(n_samples, -1) 
-        # print('u.shape = ', u.shape)
         y =  self.fc_y(u)
         return y   
 
@@ -584,7 +580,6 @@ class SVHN_FPN(nn.Module):
             Lipschitz constant and normalize updates using this.
         '''
         uv = u + v
-        # print('uv.shape = ', uv.shape)
         for idx, conv in enumerate(self.latent_convs):
             res = (self.leaky_relu(conv(uv)))
             uv  = self.lat_batch_norm[idx](uv + res)
@@ -944,7 +939,6 @@ class SVHN_FPN_Explicit(nn.Module):
             Lipschitz constant and normalize updates using this.
         '''
         uv = u + v
-        # print('uv.shape = ', uv.shape)
         for idx, conv in enumerate(self.latent_convs):
             res = (self.leaky_relu(conv(uv)))
             uv  = self.lat_batch_norm[idx](uv + res)
@@ -1368,6 +1362,9 @@ class CIFAR10_FPN_Adjoint(nn.Module):
 
 
 
+
+
+
 class CIFAR10_FPN_Unaugmented(nn.Module):
     def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
                  momentum=0.1, block=BasicBlock, num_blocks=[1,1,1]):
@@ -1377,7 +1374,7 @@ class CIFAR10_FPN_Unaugmented(nn.Module):
         self._res_layers = res_layers 
         self.gamma = contraction_factor   
         self.leaky_relu = nn.LeakyReLU(0.1)
-        self.drop_outR = nn.Dropout2d(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
         self.drop_outS = nn.Dropout2d(0.1)
         self.mom = momentum
 
@@ -1410,10 +1407,10 @@ class CIFAR10_FPN_Unaugmented(nn.Module):
         self.bn_1 = nn.BatchNorm2d(self.channel_dim)
         self.bn_2 = nn.BatchNorm2d(self.channel_dim)
 
-        # self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
-        #                                                    momentum=self.mom,
-        #                                                    affine=False)
-        #                                    for _ in range(res_layers)])
+        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+                                                           momentum=self.mom,
+                                                           affine=False)
+                                           for _ in range(res_layers)])
         
  
     def name(self):
@@ -1446,7 +1443,7 @@ class CIFAR10_FPN_Unaugmented(nn.Module):
         uv = u + v
         for idx, conv in enumerate(self.latent_convs):
             res = (self.leaky_relu(conv(uv)))
-            # uv  = self.lat_batch_norm[idx](uv + res)
+            uv  = self.lat_batch_norm[idx](uv + res)
         
         R_uv = self.gamma * uv
         return R_uv
@@ -1559,7 +1556,7 @@ class CIFAR10_FPN_Unaugmented_Adjoint(nn.Module):
         self._res_layers = res_layers 
         self.gamma = contraction_factor   
         self.leaky_relu = nn.LeakyReLU(0.1)
-        self.drop_outR = nn.Dropout2d(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
         self.drop_outS = nn.Dropout2d(0.1)
         self.mom = momentum
 
@@ -1591,6 +1588,10 @@ class CIFAR10_FPN_Unaugmented_Adjoint(nn.Module):
 
         self.bn_1 = nn.BatchNorm2d(self.channel_dim)
         self.bn_2 = nn.BatchNorm2d(self.channel_dim)
+        # self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+        #                                                    momentum=self.mom,
+        #                                                    affine=False)
+        #                                    for _ in range(res_layers)])
  
     def name(self):
         return 'CIFAR10_FPN_Unaugmented_Adjoint'
@@ -1622,6 +1623,7 @@ class CIFAR10_FPN_Unaugmented_Adjoint(nn.Module):
         uv = u + v
         for idx, conv in enumerate(self.latent_convs):
             res = (self.leaky_relu(conv(uv)))
+            # uv  = self.lat_batch_norm[idx](uv + res)
             
         R_uv = self.gamma * uv
         return R_uv
@@ -1737,7 +1739,7 @@ class CIFAR10_FPN_Unaugmented_Explicit(nn.Module):
         self._res_layers = res_layers 
         self.gamma = contraction_factor   
         self.leaky_relu = nn.LeakyReLU(0.1)
-        self.drop_outR = nn.Dropout2d(0.1)
+        self.drop_outR = nn.Dropout2d(0.0)
         self.drop_outS = nn.Dropout2d(0.1)
         self.mom = momentum
 
@@ -1769,10 +1771,10 @@ class CIFAR10_FPN_Unaugmented_Explicit(nn.Module):
 
         self.bn_1 = nn.BatchNorm2d(self.channel_dim)
         self.bn_2 = nn.BatchNorm2d(self.channel_dim)
-        # self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
-        #                                                    momentum=self.mom,
-        #                                                    affine=False)
-        #                                    for _ in range(res_layers)])
+        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+                                                           momentum=self.mom,
+                                                           affine=False)
+                                           for _ in range(res_layers)])
         
  
     def name(self):
@@ -1803,10 +1805,10 @@ class CIFAR10_FPN_Unaugmented_Explicit(nn.Module):
             Lipschitz constant and normalize updates using this.
         '''
         uv = u + v
-        # print('uv.shape = ', uv.shape)
         for idx, conv in enumerate(self.latent_convs):
             res = (self.leaky_relu(conv(uv)))
-            # uv  = self.lat_batch_norm[idx](uv + res)
+            uv  = self.lat_batch_norm[idx](uv + res)
+
         R_uv = self.gamma * uv
         return R_uv
 
