@@ -254,14 +254,17 @@ def svhn_loaders(train_batch_size, test_batch_size=None):
 def cifar_loaders(train_batch_size, test_batch_size=None, augment=True):
     if test_batch_size is None:
         test_batch_size = train_batch_size
-
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
-
     if augment:
-      transforms_list = [transforms.RandomHorizontalFlip(), 
-                         transforms.RandomCrop(32, 4), 
-                         transforms.ToTensor(), normalize]
+        transforms_list = [transforms.RandomHorizontalFlip(),                                                                    
+                           transforms.ToTensor(),
+                           normalize,
+                           transforms.RandomCrop(32, 2, fill=0.449),   # 3 
+                           transforms.RandomErasing(p=0.95, scale=(0.1, 0.25), 
+                                                    ratio=(0.2, 5.0), 
+                                                    value=[0.485, 0.456, 0.406])  
+                           ]
     else:
         transforms_list = [transforms.ToTensor(),
                             normalize]
@@ -275,13 +278,10 @@ def cifar_loaders(train_batch_size, test_batch_size=None, augment=True):
                                     transforms.ToTensor(),
                                     normalize
                                 ]))
-
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=train_batch_size,
                                                 shuffle=True, pin_memory=True)
-
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=test_batch_size,
                                                 shuffle=False, pin_memory=True)
-
     return train_loader, test_loader
 
 
