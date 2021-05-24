@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from FPN import FPN
 import numpy as np
 import torch.nn.functional as F
 
@@ -1405,10 +1404,10 @@ class CIFAR10_FPN_Adjoint(nn.Module):
                                                             affine=False)
                                             for i in range(2 * res_layers)])
                
-        self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
-                                                            momentum=self.mom,
-                                                            affine=False)
-                                            for _ in range(lat_layers)])
+        # self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
+        #                                                     momentum=self.mom,
+        #                                                     affine=False)
+        #                                     for _ in range(lat_layers)])
         self.conv_y = nn.Conv2d(num_channels, num_channels, 
                                 kernel_size=3, stride=2, padding=(1,1))
 
@@ -1446,7 +1445,7 @@ class CIFAR10_FPN_Adjoint(nn.Module):
         R_uv = v + self.gamma * u
         for idx, leaky_conv in enumerate(self.latent_convs): 
             res  = leaky_conv(R_uv)
-            R_uv = self.lat_batch_norm[idx](self.leaky_relu(R_uv + res))
+            # R_uv = self.lat_batch_norm[idx](self.leaky_relu(R_uv + res))
         return R_uv
 
     def map_latent_to_inference(self, u: latent_variable) -> classification:
@@ -1491,9 +1490,17 @@ class CIFAR10_FPN_Adjoint(nn.Module):
         R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
         u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
         R_is_gamma_lip = R_diff_norm <= self.gamma * u_diff_norm
+        # if not R_is_gamma_lip:
+        #     print("\n\n VIOLATED CONTRACTION RESTRICTION \n")
+        # self.train()
         if not R_is_gamma_lip:
-            print("\n\n VIOLATED CONTRACTION RESTRICTION \n")
-        self.train()
+            violation_ratio = self.gamma * u_diff_norm / R_diff_norm
+            normalize_factor = violation_ratio ** (1.0 / self._res_layers)
+            for i in range(self._lat_layers):
+                self.latent_convs[i][0].weight.data *= normalize_factor
+                self.latent_convs[i][0].bias.data *= normalize_factor
+                self.latent_convs[i][2].weight.data *= normalize_factor
+                self.latent_convs[i][2].bias.data *= normalize_factor
 
 
     def forward(self, d: image, eps=1.0e-3, max_depth=100, 

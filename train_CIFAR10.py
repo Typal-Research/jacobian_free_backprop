@@ -11,7 +11,7 @@ from torchvision              import datasets
 from utils import train_class_net, cifar_loaders
 from Networks import CIFAR10_FPN, BasicBlock
 
-device = 'cuda:1'; print('device = ', device)
+device = 'cuda:0'; print('device = ', device)
 
 #-------------------------------------------------------------------------------
 # Network setup
