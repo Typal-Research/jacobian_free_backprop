@@ -7,8 +7,10 @@ import numpy as np
 from Networks import MNIST_FPN_Explicit
 from utils import train_class_net, model_params, mnist_loaders
 
-device = "cuda:0" 
-print('device = ', device) 
+device = 'cuda:0'
+print('device = ', device)
+seed   = 51
+torch.manual_seed(seed)
 
 
 #-------------------------------------------------------------------------------

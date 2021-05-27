@@ -12,7 +12,10 @@ import numpy                  as np
 from Networks import CIFAR10_FPN_Unaugmented_Explicit, BasicBlock
 from utils import train_class_net, model_params, cifar_loaders
 
-device = "cuda:1"; print('device = ', device)
+device = 'cuda:0'
+print('device = ', device)
+seed   = 50
+torch.manual_seed(seed)
 
 #-------------------------------------------------------------------------------
 # Network setup

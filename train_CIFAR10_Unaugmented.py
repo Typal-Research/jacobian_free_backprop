@@ -11,8 +11,10 @@ import torch.nn.functional as F
 from Networks import CIFAR10_FPN_Unaugmented, BasicBlock
 from utils import train_class_net, model_params, cifar_loaders
 
-device = 'cuda:0' 
+device = 'cuda:0'
 print('device = ', device)
+seed   = 47
+torch.manual_seed(seed)
 
 #-------------------------------------------------------------------------------
 # Network setup

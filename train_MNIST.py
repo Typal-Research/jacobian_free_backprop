@@ -6,8 +6,10 @@ from torch.optim.lr_scheduler import StepLR
 from Networks import MNIST_FPN
 from utils import train_class_net, model_params, mnist_loaders
 
-device = "cuda:0" 
+device = 'cuda:0'
 print('device = ', device)
+seed   = 48
+torch.manual_seed(seed)
 
 #-------------------------------------------------------------------------------
 # Network setup

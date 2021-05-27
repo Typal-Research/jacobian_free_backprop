@@ -12,7 +12,10 @@ from Networks import SVHN_FPN, BasicBlock
 from FPN import FPN
 from utils import train_class_net, svhn_loaders
 
-device = "cuda:0"; print('device = ', device)
+device = 'cuda:0'
+print('device = ', device)
+seed   = 49
+torch.manual_seed(seed)
 
 #-------------------------------------------------------------------------------
 # Network setup
