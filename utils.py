@@ -7,13 +7,13 @@ import torchvision.transforms as transforms
 from torch.utils.data         import Dataset, TensorDataset, DataLoader
 from torchvision              import datasets
 import numpy as np
+from BatchCG import cg_batch
 
 
-def get_stats(net, test_loader, criterion, num_classes, eps, depth):
+def get_stats(net, test_loader, criterion, num_classes, eps, max_depth):
     test_loss = 0
     correct = 0
 
-    net.eval()
     with torch.no_grad():
         for d_test, labels in test_loader:
             labels = labels.to(net.device())
@@ -27,7 +27,7 @@ def get_stats(net, test_loader, criterion, num_classes, eps, depth):
             for i in range(d_test.size()[0]):
                 ut[i, labels[i].cpu().numpy()] = 1.0
 
-            y = net(d_test, eps=eps, max_depth=depth)
+            y = net(d_test, eps=eps, max_depth=max_depth)
 
             if str(criterion) == "MSELoss()":
                 test_loss += batch_size * criterion(y.double(), ut.double()).item()
@@ -42,10 +42,7 @@ def get_stats(net, test_loader, criterion, num_classes, eps, depth):
     test_loss /= len(test_loader.dataset)
     test_acc = 100. * correct/len(test_loader.dataset)
 
-    net.train()
-
     return test_loss, test_acc, correct
-
 
 def model_params(net):
     table = PrettyTable(["Network Component", "# Parameters"])
@@ -59,9 +56,9 @@ def model_params(net):
     return table
 
 
-def train_class_net(net, num_epochs, lr_scheduler, train_loader,
+def train_class_net(net, max_epochs, lr_scheduler, train_loader,
                     test_loader, optimizer, criterion,
-                    num_classes, eps, depth, save_dir='./'):
+                    num_classes, eps, max_depth, save_dir='./'):
 
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
     fmt += '{:6.2e}) | depth = {:4.1f} | lr = {:5.1e} | time = {:4.1f} sec'
@@ -83,14 +80,14 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
     print(model_params(net))
     print('\nTraining Fixed Point Network')
 
-    for epoch in range(num_epochs):
+    for epoch in range(max_epochs):
         sleep(0.5)  # slows progress bar so it won't print on multiple lines
         loss_ave        = 0.0
         epoch_start_time = time.time()
         tot = len(train_loader)
         with tqdm(total=tot, unit=" batch", leave=False, ascii=True) as tepoch:
 
-            tepoch.set_description("[{:3d}/{:3d}]".format(epoch+1, num_epochs))
+            tepoch.set_description("[{:3d}/{:3d}]".format(epoch+1, max_epochs))
 
             for _, (d, labels) in enumerate(train_loader):
                 labels = labels.to(net.device())
@@ -105,7 +102,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                 # Apply network to get fixed point and then backprop
                 # -------------------------------------------------------------
                 optimizer.zero_grad()
-                y = net(d, eps=eps, max_depth=depth)
+                y = net(d, eps=eps, max_depth=max_depth)
 
                 depth_ave = 0.99 * depth_ave + 0.01 * net.depth
                 output = None
@@ -144,7 +141,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
                                                  criterion,
                                                  num_classes,
                                                  eps,
-                                                 depth_ave)
+                                                 max_depth)
 
         test_loss_hist.append(test_loss)
         test_acc_hist.append(test_acc)
@@ -157,7 +154,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         time_hist.append(time_epoch)
         total_time += time_epoch 
 
-        print(fmt.format(epoch+1, num_epochs, train_acc, loss_ave,
+        print(fmt.format(epoch+1, max_epochs, train_acc, loss_ave,
                          test_acc, test_loss, depth_ave,
                          optimizer.param_groups[0]['lr'],
                          time_epoch))
@@ -181,7 +178,7 @@ def train_class_net(net, num_epochs, lr_scheduler, train_loader,
         # Save history at last epoch
         # ---------------------------------------------------------------------
 
-        if epoch+1 == num_epochs:
+        if epoch+1 == max_epochs:
             state = {
                 'test_loss_hist': test_loss_hist,
                 'test_acc_hist': test_acc_hist,
@@ -286,7 +283,7 @@ def cifar_loaders(train_batch_size, test_batch_size=None, augment=True):
 
 
 #-------------------------------------------------------------------------------
-# Compute fixed point
+# Jacobian-based functions
 #-------------------------------------------------------------------------------
 def compute_fixed_point(T, Qd, max_depth, device, eps=1e-4):
 
@@ -297,8 +294,6 @@ def compute_fixed_point(T, Qd, max_depth, device, eps=1e-4):
 
     # approximately normalize weights by lipschitz constant before computing fixed point
     T.normalize_lip_const(u, Qd)
-
-    T.eval()
     
     with torch.no_grad():
         all_samp_conv = False
@@ -307,7 +302,442 @@ def compute_fixed_point(T, Qd, max_depth, device, eps=1e-4):
             u = T.latent_space_forward(u, Qd)
             depth += 1.0
             all_samp_conv = torch.max(torch.norm(u - u_prev, dim=1)) <= eps
-
-    T.train()
             
-    return u, depth
+    return u.detach(), depth
+
+def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
+                    test_loader, optimizer, criterion,
+                    num_classes, eps, max_depth, save_dir='./', JTJ_shift=0.0):
+
+    avg_time      = 0.0         
+    total_time    = 0.0
+    time_hist     = []
+    n_Umatvecs    = []           
+    max_iter_cg   = max_depth
+    tol_cg        = eps
+
+    depth_ave     = 0.0
+    best_test_acc = 0.0
+    train_acc     = 0.0
+
+    test_loss_hist   = [] # test loss history array
+    test_acc_hist    = [] # test accuracy history array
+    depth_test_hist  = [] # test depths history array
+    train_loss_hist  = [] # train loss history array
+    train_acc_hist   = [] # train accuracy history array
+
+    fmt        = '[{:4d}/{:4d}]: train acc = {:5.2f}% | train_loss = {:7.3e} | ' 
+    fmt       += ' test acc = {:5.2f}% | test loss = {:7.3e} | '
+    fmt       += 'depth = {:5.1f} | lr = {:5.1e} | time = {:4.1f} sec | n_Umatvecs = {:4d} | cg = {:7.3e}'
+    print(net)                 # display Tnet configuration
+    print(model_params(net))   # display Tnet parameters
+    print('\nTraining Jacobian-based Network')
+
+    for epoch in range(max_epochs): 
+
+        sleep(0.5)  # slows progress bar so it won't print on multiple lines
+        tot = len(train_loader)
+        temp_n_Umatvecs = 0
+        cg_iters    = 0
+        start_time_epoch = time.time() 
+        temp_max_depth = 0
+        loss_ave = 0.0
+        with tqdm(total=tot, unit=" batch", leave=False, ascii=True) as tepoch:
+
+            tepoch.set_description("[{:3d}/{:3d}]".format(epoch+1, max_epochs))
+          
+            for idx, (d, labels) in enumerate(train_loader):         
+                labels  = labels.to(net.device()); d = d.to(net.device())
+
+                #-----------------------------------------------------------------------
+                # Find Fixed Point
+                #----------------------------------------------------------------------- 
+                train_batch_size = d.shape[0] # re-define if batch size changes
+                # u0 = torch.zeros((train_batch_size, lat_dim)).to(device)
+                with torch.no_grad():
+                    Qd = net.data_space_forward(d)
+                    u, depth = compute_fixed_point(net, Qd, max_depth, net.device(), eps=eps)
+
+                    depth_ave = 0.99 * depth_ave + 0.01 * net.depth
+
+                    temp_max_depth = max(depth, temp_max_depth)
+
+                #-----------------------------------------------------------------------
+                # Jacobian_Based Backprop 
+                #-----------------------------------------------------------------------  
+                net.train()
+                optimizer.zero_grad() # Initialize gradient to zero
+
+                # compute output for backprop
+                u.requires_grad=True
+                Qd = net.data_space_forward(d)
+
+                Ru = net.latent_space_forward(u, Qd); 
+                S_Ru = net.map_latent_to_inference(Ru)
+                loss  = criterion(S_Ru, labels)
+                train_loss = loss.detach().cpu().numpy() * train_batch_size
+                loss_ave += train_loss
+
+                # compute rhs = J * dldu
+                dldu    = torch.autograd.grad(outputs = loss, inputs = Ru, 
+                                            retain_graph=True, create_graph = True, only_inputs=True)[0];
+                dldu    = dldu # note: dldu here = dS/du * dl/dS
+
+                #-----------------------------------------------------------------------
+                # trick for computing J * (JTv): # take take derivative d(JTv)/dv * JTv = J * JTv
+                #-----------------------------------------------------------------------
+                # compute dldu_JT:
+                dldu_dRduT = torch.autograd.grad(outputs=Ru, inputs = u_fixed_pt, grad_outputs=dldu, retain_graph=True, create_graph = True, only_inputs=True)[0];
+                dldu_JT = dldu - dldu_dRduT 
+
+                # compute J * dldu: take derivative of d(JT*v)/v * v = J*v
+                dldu_J = torch.autograd.grad(outputs = dldu_JT, inputs = dldu, grad_outputs = dldu, retain_graph=True, create_graph = True, only_inputs=True)[0];
+                rhs = dldu_J
+
+                rhs = rhs.detach()
+                rhs = rhs.view(train_batch_size, -1) # vectorize channels (when R is a CNN)
+                rhs = rhs.unsqueeze(2) # unsqueeze for number of rhs. CG requires it to have dimensions n_samples x n_features x n_rh
+
+                #-----------------------------------------------------------------------
+                # Define JTJ matvec function
+                #-----------------------------------------------------------------------
+                def v_JJT_matvec(v, u=u, Ru=Ru):
+                    # inputs:
+                    # v = vector to be multiplied by U = I - alpha*DS - (1-alpha)*DT) requires grad
+                    # u = fixed point vector u (should be untracked and vectorized!) requires grad
+                    # Ru = R applied to u (requires grad)
+
+                    # assumes one rhs: x (n_samples, n_dim, n_rhs) -> (n_samples, n_dim)
+
+                    v = v.squeeze(2)      # squeeze number of RHS
+                    v = v.view(Ru.shape)  # reshape to filter space 
+                    v.requires_grad=True
+
+                    # compute v*J = v*(I - dRdu)
+                    # trick for computing J * (v): # take take derivative d(JTv)/dv * v = J * v
+                    v_dRduT = torch.autograd.grad(outputs = Ru, inputs = u, grad_outputs = v, retain_graph=True, create_graph = True, only_inputs=True)[0]
+                    v_dRdu  = torch.autograd.grad(outputs = v_dRduT, inputs = v, grad_outputs = v, retain_graph=True, create_graph = True, only_inputs=True)[0]
+                    v_J      = v - v_dRdu
+
+                    # compute v_JJT
+                    v_JJT     = torch.autograd.grad(outputs = v_J, inputs = v, grad_outputs= v_J, retain_graph=True, create_graph = True, only_inputs=True)[0]
+
+                    v = v.detach()
+                    v_J = v_J.detach()
+                    Amv = v_JJT.detach() 
+                    Amv = Amv.view(Ru.shape[0], -1)
+                    Amv = Amv.unsqueeze(2).detach()
+                    return Amv 
+
+                JJTinv_rhs, info = cg_batch(v_JJT_matvec, rhs, M_bmm=None, X0=None, rtol=0, atol=tol_cg, maxiter=max_iter_cg, verbose=False)
+                JJTinv_rhs = JJTinv_rhs.squeeze(2) # JTJinv_v has size (batch_size x n_hidden_features), n_rhs is squeezed
+                JJTinv_rhs = JJTinv_rhs.view(Ru.shape)
+
+                temp_n_Umatvecs += info['niter'] * train_batch_size
+                cg_iters    += info['niter']
+
+
+                if info['optimal'] == True:
+                    # avoid updating "bad batches", i.e., update only when CG converges
+
+                    # compute dTdtheta
+                    # Ru = Ru.view(train_batch_size, -1) # reshape in case Ru is a CNN
+                    # computes v_JTJinv_dRdTheta = dSdu * dldS * Jinv * dRdTheta
+                    u.requires_grad=False
+                    Ru.backward(JTJinv_rhs)
+
+                    S_Ru = net.map_latent_to_inference(Ru.detach())
+                    loss  = criterion(S_Ru, labels)
+                    loss.backward()
+
+                    u.requires_grad=False
+
+                    optimizer.step()    
+
+                # -------------------------------------------------------------
+                # Output training stats
+                # -------------------------------------------------------------
+                pred = S_Ru.argmax(dim=1, keepdim=True)
+                correct = pred.eq(labels.view_as(pred)).sum().item()
+                train_acc = 0.99 * train_acc + 1.00 * correct / train_batch_size
+                tepoch.update(1)
+                tepoch.set_postfix(train_loss="{:5.2e}".format(train_loss
+                                    / train_batch_size),
+                                    train_acc="{:5.2f}%".format(train_acc),
+                                    depth="{:5.1f}".format(temp_max_depth),
+                                    cgiters="{:5.1f}".format(info['niter']))
+            
+        loss_ave /= len(train_loader.dataset)
+
+        # update optimization scheduler
+        lr_scheduler.step()
+
+        # compute test loss and accuracy
+        test_loss, test_acc, correct = get_stats(net, test_loader, criterion, 10, eps, max_depth)
+        # test_loss, test_acc, correct = get_stats_Jacobian(net, test_loader, criterion, eps, max_depth)
+
+        end_time_epoch = time.time()
+        time_epoch = end_time_epoch - start_time_epoch
+
+        #---------------------------------------------------------------------------
+        # Compute costs and statistics
+        #---------------------------------------------------------------------------
+        time_hist.append(time_epoch)
+        total_time += time_epoch 
+        avg_time /= total_time/(epoch+1)
+        n_Umatvecs.append(temp_n_Umatvecs)
+
+        test_loss_hist.append(test_loss)
+        test_acc_hist.append(test_acc)
+        train_loss_hist.append(loss_ave)
+        train_acc_hist.append(train_acc)
+        depth_test_hist.append(net.depth)
+
+        #---------------------------------------------------------------------------
+        # Print outputs to console
+        #---------------------------------------------------------------------------
+
+        print(fmt.format(epoch+1, max_epochs, train_acc, loss_ave,
+                        test_acc, test_loss, temp_max_depth,
+                        optimizer.param_groups[0]['lr'],
+                        time_epoch, temp_n_Umatvecs, cg_iters))
+
+        # ---------------------------------------------------------------------
+        # Save weights 
+        # ---------------------------------------------------------------------
+        if test_acc > best_test_acc:
+            best_test_acc = test_acc
+            state = {
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist,
+                'net_state_dict': net.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler
+            }
+            file_name = save_dir + net.name() + '_weights.pth'
+            torch.save(state, file_name)
+            print('Model weights saved to ' + file_name)
+
+        # ---------------------------------------------------------------------
+        # Save history at last epoch
+        # ---------------------------------------------------------------------
+        if epoch+1 == max_epochs:
+            state = {
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist,
+                'train_loss_hist': train_loss_hist,
+                'train_acc_hist': train_acc_hist,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler,
+                'avg_time': avg_time, 
+                'n_Umatvecs': n_Umatvecs,
+                'time_hist': time_hist,
+                'tol_cg': tol_cg,
+                'eps': eps,
+                'net_state_dict': net.state_dict(),
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist,
+                'depth_test_hist': depth_test_hist
+            }
+            file_name = save_dir  + net.name() + '_history.pth'
+            torch.save(state, file_name)
+            print('Training history saved to ' + file_name)
+
+    return net      
+
+
+def train_Neumann_FPN_net(net, max_epochs, lr_scheduler, train_loader,
+                    test_loader, optimizer, criterion,
+                    num_classes, eps, max_depth, save_dir='./', neumann_order=0):
+
+    avg_time      = 0.0         
+    total_time    = 0.0
+    time_hist     = []
+    n_Umatvecs    = []           
+
+    depth_ave     = 0.0
+    best_test_acc = 0.0
+    train_acc     = 0.0
+
+    test_loss_hist   = [] # test loss history array
+    test_acc_hist    = [] # test accuracy history array
+    depth_test_hist  = [] # test depths history array
+    train_loss_hist  = [] # train loss history array
+    train_acc_hist   = [] # train accuracy history array
+
+    fmt        = '[{:4d}/{:4d}]: train acc = {:5.2f}% | train_loss = {:7.3e} | ' 
+    fmt       += ' test acc = {:5.2f}% | test loss = {:7.3e} | '
+    fmt       += 'depth = {:5.1f} | lr = {:5.1e} | time = {:4.1f} sec | n_Umatvecs = {:4d}'
+    print(net)                 # display Tnet configuration
+    print(model_params(net))   # display Tnet parameters
+    print('\nTraining Neumann-based Network')
+
+    for epoch in range(max_epochs): 
+
+        sleep(0.5)  # slows progress bar so it won't print on multiple lines
+        tot = len(train_loader)
+        temp_n_Umatvecs = 0
+        cg_iters    = 0
+        start_time_epoch = time.time() 
+        temp_max_depth = 0
+        loss_ave = 0.0
+        with tqdm(total=tot, unit=" batch", leave=False, ascii=True) as tepoch:
+
+            tepoch.set_description("[{:3d}/{:3d}]".format(epoch+1, max_epochs))
+          
+            for idx, (d, labels) in enumerate(train_loader):         
+                labels  = labels.to(net.device()); d = d.to(net.device())
+
+                #-----------------------------------------------------------------------
+                # Find Fixed Point
+                #----------------------------------------------------------------------- 
+                train_batch_size = d.shape[0] # re-define if batch size changes
+
+                with torch.no_grad():
+                    Qd = net.data_space_forward(d)
+                    u, depth = compute_fixed_point(net, Qd, max_depth, net.device(), eps=eps)
+
+                    depth_ave = 0.99 * depth_ave + 0.01 * net.depth
+
+                    temp_max_depth = max(depth, temp_max_depth)
+
+                #-----------------------------------------------------------------------
+                # Jacobian_Based Backprop 
+                #-----------------------------------------------------------------------  
+                net.train()
+                optimizer.zero_grad() # Initialize gradient to zero
+
+                # compute output for backprop
+                u.requires_grad=True
+                Qd = net.data_space_forward(d)
+
+                Ru = net.latent_space_forward(u, Qd); 
+                S_Ru = net.map_latent_to_inference(Ru)
+                loss  = criterion(S_Ru, labels)
+                train_loss = loss.detach().cpu().numpy() * train_batch_size
+                loss_ave += train_loss
+
+                dldS_dSdu    = torch.autograd.grad(outputs = loss, inputs = Ru, 
+                            retain_graph=True, create_graph = True, only_inputs=True)[0];
+                dldS_dSdu    = dldS_dSdu.detach() # note: dldu here = dS/du * dl/dS
+
+                dldS_dSdu_Jinv = dldS_dSdu.clone().detach()
+                v_dRdu_k = dldS_dSdu.clone().detach()
+            
+                # Approximate Jacobian inverse with Neumann series expansion upto neumann_order terms
+                for i in range(1, neumann_order+1):
+                  # trick for computing dRdu * v
+                  # compute dRdu^T * v, then dRdu * v = d( dRdu^T * v )/dv * v
+                  v = v_dRdu_k.clone()
+                  v.requires_grad = True
+                  v_dRdu       = torch.autograd.grad(outputs=Ru, inputs = u, grad_outputs=v, retain_graph=True, create_graph = True, only_inputs=True)[0]
+                  v_dRdu_k      = torch.autograd.grad(outputs=v_dRdu, inputs = v, grad_outputs=v.detach(), retain_graph=True, create_graph = True, only_inputs=True)[0].detach()
+                  dldS_dSdu_Jinv = dldS_dSdu_Jinv + v_dRdu_k.detach()
+            
+                temp_n_Umatvecs += int(neumann_order*(neumann_order+1)/2)
+
+                Ru.backward(dldS_dSdu_Jinv)
+
+
+                # compute dl/dS * dS/dTheta
+                # Qd = net.data_space_forward(d)
+                Ru = net.latent_space_forward(u, Qd); 
+                S_Ru = net.map_latent_to_inference(Ru.detach())
+                loss  = criterion(S_Ru, labels)
+                loss.backward()
+
+                u.requires_grad=False
+
+                # update net parameters
+                optimizer.step()  
+
+
+                # -------------------------------------------------------------
+                # Output training stats
+                # -------------------------------------------------------------
+                pred = S_Ru.argmax(dim=1, keepdim=True)
+                correct = pred.eq(labels.view_as(pred)).sum().item()
+                train_acc = 0.99 * train_acc + 1.00 * correct / train_batch_size
+                tepoch.update(1)
+                tepoch.set_postfix(train_loss="{:5.2e}".format(train_loss
+                                    / train_batch_size),
+                                    train_acc="{:5.2f}%".format(train_acc),
+                                    depth="{:5.1f}".format(temp_max_depth))
+            
+        loss_ave /= len(train_loader.dataset)
+
+        # update optimization scheduler
+        lr_scheduler.step()
+
+        # compute test loss and accuracy
+        test_loss, test_acc, correct = get_stats(net, test_loader, criterion, 10, eps, max_depth)
+        # test_loss, test_acc, correct = get_stats_Jacobian(net, test_loader, criterion, eps, max_depth)
+
+        end_time_epoch = time.time()
+        time_epoch = end_time_epoch - start_time_epoch
+
+        #---------------------------------------------------------------------------
+        # Compute costs and statistics
+        #---------------------------------------------------------------------------
+        time_hist.append(time_epoch)
+        total_time += time_epoch 
+        avg_time /= total_time/(epoch+1)
+        n_Umatvecs.append(temp_n_Umatvecs)
+
+        test_loss_hist.append(test_loss)
+        test_acc_hist.append(test_acc)
+        train_loss_hist.append(loss_ave)
+        train_acc_hist.append(train_acc)
+        depth_test_hist.append(net.depth)
+
+        #---------------------------------------------------------------------------
+        # Print outputs to console
+        #---------------------------------------------------------------------------
+
+        print(fmt.format(epoch+1, max_epochs, train_acc, loss_ave,
+                        test_acc, test_loss, temp_max_depth,
+                        optimizer.param_groups[0]['lr'],
+                        time_epoch, temp_n_Umatvecs, cg_iters))
+
+        # ---------------------------------------------------------------------
+        # Save weights 
+        # ---------------------------------------------------------------------
+        if test_acc > best_test_acc:
+            best_test_acc = test_acc
+            state = {
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist,
+                'net_state_dict': net.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler
+            }
+            file_name = save_dir + net.name() + '_weights.pth'
+            torch.save(state, file_name)
+            print('Model weights saved to ' + file_name)
+
+        # ---------------------------------------------------------------------
+        # Save history at last epoch
+        # ---------------------------------------------------------------------
+        if epoch+1 == max_epochs:
+            state = {
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist,
+                'train_loss_hist': train_loss_hist,
+                'train_acc_hist': train_acc_hist,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler,
+                'avg_time': avg_time, 
+                'n_Umatvecs': n_Umatvecs,
+                'time_hist': time_hist,
+                'eps': eps,
+                'net_state_dict': net.state_dict(),
+                'test_loss_hist': test_loss_hist,
+                'test_acc_hist': test_acc_hist,
+                'depth_test_hist': depth_test_hist
+            }
+            file_name = save_dir  + net.name() + '_history.pth'
+            torch.save(state, file_name)
+            print('Training history saved to ' + file_name)
+
+    return net
+
