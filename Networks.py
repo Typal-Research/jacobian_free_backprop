@@ -37,6 +37,7 @@ def forward_implicit(net, d: image, eps=1.0e-3, max_depth=100,
 
     attach_gradients = net.training
     if attach_gradients:
+        Qd = net.data_space_forward(d)
         return net.map_latent_to_inference(net.latent_space_forward(u, Qd))
     else:
         return net.map_latent_to_inference(u).detach()
@@ -87,7 +88,7 @@ def normalize_lip_const(net, u: latent_variable, v: latent_variable):
         if not R_is_gamma_lip:
             violation_ratio = net.gamma * u_diff_norm / R_diff_norm
             normalize_factor = violation_ratio ** (1.0 / net._res_layers)
-            # print('NOT GAMMA LIPSCHITZ!')
+            print('normalizing...')
             for i in range(net._res_layers):
                 net.latent_convs[i][0].weight.data *= normalize_factor
                 net.latent_convs[i][0].bias.data *= normalize_factor
@@ -446,9 +447,10 @@ class CIFAR10_FPN(nn.Module):
         self.gamma = contraction_factor
         self.leaky_relu = nn.LeakyReLU(0.1)
         self.relu = nn.ReLU()
-        self.drop_out_Q = nn.Dropout2d(1.5e-1)  
-        self.drop_out_S = nn.Dropout(1.0e-1)    
-        self._lat_layers = lat_layers
+        self.drop_outQ = nn.Dropout2d(1.5e-1)  
+        self.drop_outR = nn.Dropout2d(0.0)
+        self.drop_outS = nn.Dropout(1.0e-1)    
+        # self._lat_layers = lat_layers
         self.mom = momentum
         in_chan =  lambda i: 35  
         out_chan = lambda i: num_channels if i == (2 * res_layers-1) else in_chan(i) 
@@ -467,7 +469,7 @@ class CIFAR10_FPN(nn.Module):
                                                    kernel_size=3, stride=1, 
                                                    padding=(1,1)),
                                                    self.leaky_relu,
-                                                   self.drop_out_Q,
+                                                   self.drop_outQ,
                                                    nn.Conv2d(in_channels=out_chan(i), 
                                                    out_channels=out_chan(i), 
                                                    kernel_size=3, stride=1, 
@@ -478,12 +480,13 @@ class CIFAR10_FPN(nn.Module):
                                                    out_channels=num_channels, 
                                                    kernel_size=3, stride=1, 
                                                    padding=(1,1)),                                                   
-                                                   self.leaky_relu, 
+                                                   self.leaky_relu,
+                                                   self.drop_outR, 
                                                    nn.Conv2d(in_channels=num_channels, 
                                                    out_channels=num_channels, 
                                                    kernel_size=3, stride=1, 
                                                    padding=(1,1)))
-                                           for _ in range(lat_layers)]) 
+                                           for _ in range(res_layers)]) 
                
         self.dat_batch_norm = nn.ModuleList([nn.BatchNorm2d(out_chan(i), 
                                                             momentum=self.mom,
@@ -493,7 +496,7 @@ class CIFAR10_FPN(nn.Module):
         self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels, 
                                                             momentum=self.mom,
                                                             affine=False)
-                                            for _ in range(lat_layers)])
+                                            for _ in range(res_layers)])
         self.conv_y = nn.Conv2d(num_channels, num_channels, 
                                 kernel_size=3, stride=2, padding=(1,1))
 
@@ -564,7 +567,7 @@ class CIFAR10_FPN(nn.Module):
             then applies affine mappings to input. Operations do *not* need to
             be 1-Lipschitz.
         '''
-        y = self.drop_out_S(self.leaky_relu(self.conv_y(u)))
+        y = self.drop_outS(self.leaky_relu(self.conv_y(u)))
         y = y.view(u.size()[0], -1)  
         class_label = self.label_fc(y)
         return class_label        
@@ -586,16 +589,4 @@ class CIFAR10_FPN(nn.Module):
                         depth_warning=False)
 
     def normalize_lip_const(self, u: latent_variable, v: latent_variable):
-        noise_u = torch.randn(u.size(), device=net.device())
-        noise_v = torch.randn(u.size(), device=net.device())
-        w = u.clone() + noise_u
-        Rwv = net.latent_space_forward(w, v + noise_v)
-        Ruv = net.latent_space_forward(u, v + noise_v)
-        R_diff_norm = torch.mean(torch.norm(Rwv - Ruv, dim=1))
-        u_diff_norm = torch.mean(torch.norm(w - u, dim=1))
-        R_is_gamma_lip = R_diff_norm <= net.gamma * u_diff_norm
-        if not R_is_gamma_lip:
-            violation_ratio = net.gamma * u_diff_norm / R_diff_norm
-            normalize_factor = violation_ratio ** (1.0 / net._res_layers)
-            print('NOT GAMMA LIPSCHITZ!')
-
+        return normalize_lip_const(self, u, v)
