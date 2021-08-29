@@ -10,9 +10,9 @@ import numpy as np
 from BatchCG import cg_batch
 
 
-def get_stats(net, test_loader, criterion, num_classes, eps, max_depth):
+def get_stats(net, test_loader, criterion, num_classes: int, eps: float, max_depth: int):
     test_loss = 0
-    correct = 0
+    num_correct_labels = 0
 
     with torch.no_grad():
         for d_test, labels in test_loader:
@@ -37,12 +37,12 @@ def get_stats(net, test_loader, criterion, num_classes, eps, max_depth):
                 print("Error: Invalid Loss Function")
 
             pred = y.argmax(dim=1, keepdim=True)
-            correct += pred.eq(labels.view_as(pred)).sum().item()
+            num_correct_labels += pred.eq(labels.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
-    test_acc = 100. * correct/len(test_loader.dataset)
+    test_acc = 100. * num_correct_labels/len(test_loader.dataset)
 
-    return test_loss, test_acc, correct
+    return test_loss, test_acc, num_correct_labels
 
 def model_params(net):
     table = PrettyTable(["Network Component", "# Parameters"])
@@ -63,18 +63,16 @@ def train_class_net(net, max_epochs, lr_scheduler, train_loader,
     fmt = '[{:3d}/{:3d}]: train - ({:6.2f}%, {:6.2e}), test - ({:6.2f}%, '
     fmt += '{:6.2e}) | depth = {:4.1f} | lr = {:5.1e} | time = {:4.1f} sec'
 
-    depth_ave       = 0.0
-    train_acc       = 0.0
-    best_test_acc   = 0.0
+    depth_ave = 0.0
+    train_acc = 0.0
+    best_test_acc = 0.0
 
-    total_time    = 0.0
-    time_hist     = []
-
-    test_loss_hist  = []
-    test_acc_hist   = []
+    total_time = 0.0
+    time_hist = []
+    test_loss_hist = []
+    test_acc_hist = []
     train_loss_hist = []
-    train_acc_hist  = []
-
+    train_acc_hist = []
 
     print(net)
     print(model_params(net))
@@ -82,7 +80,7 @@ def train_class_net(net, max_epochs, lr_scheduler, train_loader,
 
     for epoch in range(max_epochs):
         sleep(0.5)  # slows progress bar so it won't print on multiple lines
-        loss_ave        = 0.0
+        loss_ave = 0.0
         epoch_start_time = time.time()
         tot = len(train_loader)
         with tqdm(total=tot, unit=" batch", leave=False, ascii=True) as tepoch:
@@ -107,7 +105,7 @@ def train_class_net(net, max_epochs, lr_scheduler, train_loader,
                 depth_ave = 0.99 * depth_ave + 0.01 * net.depth
                 output = None
                 if str(criterion) == "MSELoss()":
-                    
+
                     ut = torch.zeros((d.size()[0], num_classes)).to(net.device())
                     for i in range(d.size()[0]):
                         ut[i, labels[i].cpu().numpy()] = 1.0
