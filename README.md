@@ -1,3 +1,8 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status - Travis](https://travis-ci.org/howardheaton/fixed_point_networks.svg?branch=master)](https://travis-ci.org/howardheaton/fixed_point_networks)
+[![Build Status - GitHub](https://github.com/howardheaton/pytesting/workflows/pytesting/badge.svg)](https://github.com/howardheaton/fixed_point_networks/actions?query=workflow%3Apytesting)
+[![Coverage Status](https://coveralls.io/repos/github/howardheaton/fixed_point_networks/badge.svg?branch=master)](https://coveralls.io/github/howardheaton/fixed_point_networks?branch=master)
+
 # Fixed Point Networks
 
 
