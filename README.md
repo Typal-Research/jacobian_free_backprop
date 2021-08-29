@@ -1,7 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status - GitHub](https://github.com/howardheaton/fixed_point_networks/workflows/pytests/badge.svg)](https://github.com/howardheaton/fixed_point_networks/actions?query=workflow%3Apytesting)
 
-# Fixed Point Networks
+# Jacobian-Free Backprop
 ## Associated Publication
 
 _JFB: Jacobian-Free Backpropagation for Implicit Models_ (**[arXiv Link](https://arxiv.org/pdf/2103.12803.pdf)**)
