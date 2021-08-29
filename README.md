@@ -6,7 +6,7 @@
 
 _JFB: Jacobian-Free Backpropagation for Implicit Models_ (**[arXiv Link](https://arxiv.org/pdf/2103.12803.pdf)**)
 
-    @article{WuFung2020learned,
+    @article{WuFung2020JFB,
         title={Fixed Point Networks: Implicit Depth Models with Jacobian-Free Backprop},
         author={Fung, Samy Wu and Heaton, Howard and Li, Qiuwei and McKenzie, Daniel and Osher, Stanley and Yin, Wotao},
         journal={arXiv preprint arXiv:2103.12803},
