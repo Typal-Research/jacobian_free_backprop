@@ -1,14 +1,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status - Travis](https://travis-ci.org/howardheaton/fixed_point_networks.svg?branch=master)](https://travis-ci.org/howardheaton/fixed_point_networks)
-[![Build Status - GitHub](https://github.com/howardheaton/pytesting/workflows/pytesting/badge.svg)](https://github.com/howardheaton/fixed_point_networks/actions?query=workflow%3Apytesting)
-[![Coverage Status](https://coveralls.io/repos/github/howardheaton/fixed_point_networks/badge.svg?branch=master)](https://coveralls.io/github/howardheaton/fixed_point_networks?branch=master)
+[![Build Status - GitHub](https://github.com/howardheaton/fixed_point_networks/workflows/pytests/badge.svg)](https://github.com/howardheaton/fixed_point_networks/actions?query=workflow%3Apytesting)
 
 # Fixed Point Networks
-
-
 ## Associated Publication
 
-_Fixed Point Networks: Implicit Depth with Jacobian-Free Backprop_ (**[arXiv Link](https://arxiv.org/pdf/2103.12803.pdf)**)
+_JFB: Jacobian-Free Backpropagation for Implicit Models_ (**[arXiv Link](https://arxiv.org/pdf/2103.12803.pdf)**)
 
     @article{WuFung2020learned,
         title={Fixed Point Networks: Implicit Depth Models with Jacobian-Free Backprop},
