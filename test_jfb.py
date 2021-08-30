@@ -18,10 +18,10 @@ def v_JJT_matvec(v, u, Ru):
 
     # compute v*J = v*(I - dRdu)
     v_dRdu = torch.autograd.grad(outputs=Ru, inputs=u,
-                                    grad_outputs=v,
-                                    retain_graph=True,
-                                    create_graph=True,
-                                    only_inputs=True)[0]
+                                 grad_outputs=v,
+                                 retain_graph=True,
+                                 create_graph=True,
+                                 only_inputs=True)[0]
     v_J = v - v_dRdu
 
     # compute v_JJT
@@ -51,7 +51,7 @@ def test_symmetry_of_Jacobians():
         temp_vec = torch.zeros(n_features)
         temp_vec[i] = 1.0
 
-    JJT_mat[i, :] = v_JJT_matvec(temp_vec, u, Ru)
+        JJT_mat[i, :] = v_JJT_matvec(temp_vec, u, Ru)
 
     assert(torch.norm(JJT_mat - JJT_mat.transpose(1, 0)) < 1e-6)
 
