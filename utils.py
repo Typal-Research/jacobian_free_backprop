@@ -382,7 +382,7 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                 # -------------------------------------------------------------
                 # compute rhs = dldu * J^T
                 # -------------------------------------------------------------
-                
+
                 # dldu = dl/dS * dS/du
                 dldu = torch.autograd.grad(outputs=loss, inputs=Ru,
                                            retain_graph=True,
@@ -410,6 +410,7 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                 rhs = rhs.view(train_batch_size, -1)
                 # CG requires it to have dims: n_samples x n_features x n_rh
                 rhs = rhs.unsqueeze(2)  # unsqueeze for number of rhs.
+
                 # -------------------------------------------------------------
                 # Define JJT matvec function
                 # -------------------------------------------------------------
@@ -417,8 +418,7 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                 def v_JJT_matvec(v, u=u, Ru=Ru):
                     # inputs:
                     # v = vector to be multiplied by JJT
-                    # u = fixed point vector u
-                    #   (should be untracked and vectorized) requires grad
+                    # u = fixed point vector u (requires grad)
                     # Ru = R applied to u (requires grad)
 
                     # assumes one rhs:
