@@ -88,9 +88,9 @@ def normalize_lip_const(net, u: latent_variable, v: latent_variable):
     R_is_gamma_lip = R_diff_norm <= net.gamma * u_diff_norm
     if not R_is_gamma_lip:
         violation_ratio = net.gamma * u_diff_norm / R_diff_norm
-        normalize_factor = violation_ratio ** (1.0 / net._res_layers)
+        normalize_factor = violation_ratio ** (1.0 / net._lat_layers)
         print('normalizing...')
-        for i in range(net._res_layers):
+        for i in range(net._lat_layers):
             net.latent_convs[i][0].weight.data *= normalize_factor
             net.latent_convs[i][0].bias.data *= normalize_factor
             net.latent_convs[i][3].weight.data *= normalize_factor
@@ -102,12 +102,12 @@ def normalize_lip_const(net, u: latent_variable, v: latent_variable):
 # ------------------------------------------------------------------------------------------------
 
 class MNIST_FPN(nn.Module):
-    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+    def __init__(self, lat_layers=4, num_channels=32, contraction_factor=0.1,
                  momentum=0.1, architecture='FPN'):
         super().__init__()
 
         self._channels = num_channels
-        self._res_layers = res_layers
+        self._lat_layers = lat_layers
         self.gamma = contraction_factor
         self.leaky_relu = nn.LeakyReLU(0.1)
         self.drop_outR = nn.Dropout2d(0.0)
@@ -137,7 +137,7 @@ class MNIST_FPN(nn.Module):
                                                      padding=(1, 1)),
                                            self.leaky_relu,
                                            self.drop_outR)
-                                           for _ in range(res_layers)])
+                                           for _ in range(lat_layers)])
 
         self.conv_y = nn.Conv2d(in_channels=self.channel_dim,
                                 out_channels=16, kernel_size=3, stride=1)
@@ -148,7 +148,7 @@ class MNIST_FPN(nn.Module):
         self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels,
                                                             momentum=self.mom,
                                                             affine=False)
-                                            for _ in range(res_layers)])
+                                            for _ in range(lat_layers)])
 
     def name(self):
         '''
@@ -306,13 +306,13 @@ def _make_layer(net, block, planes, num_blocks, stride):
 
 
 class SVHN_FPN(nn.Module):
-    def __init__(self, res_layers=4, num_channels=32, contraction_factor=0.1,
+    def __init__(self, lat_layers=4, num_channels=32, contraction_factor=0.1,
                  momentum=0.1, block=BasicBlock, num_blocks=[1, 1, 1],
                  architecture='FPN'):
         super().__init__()
         self.avg_pool = nn.AvgPool2d(kernel_size=2)
         self._channels = num_channels
-        self._res_layers = res_layers
+        self._lat_layers = lat_layers
         self.gamma = contraction_factor
         self.leaky_relu = nn.LeakyReLU(0.1)
         self.drop_outR = nn.Dropout2d(0.0)
@@ -344,7 +344,7 @@ class SVHN_FPN(nn.Module):
                                                      padding=(1, 1)),
                                            self.leaky_relu,
                                            self.drop_outR)
-                                           for _ in range(res_layers)])
+                                           for _ in range(lat_layers)])
 
         self.conv_y = nn.Conv2d(in_channels=self.channel_dim,
                                 out_channels=16, kernel_size=3, stride=1)
@@ -355,7 +355,7 @@ class SVHN_FPN(nn.Module):
         self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels,
                                                             momentum=self.mom,
                                                             affine=False)
-                                            for _ in range(res_layers)])
+                                            for _ in range(lat_layers)])
 
     def name(self):
         '''
@@ -454,34 +454,37 @@ class SVHN_FPN(nn.Module):
 # CIFAR10 Architectures
 # -----------------------------------------------------------------------------
 class CIFAR10_FPN(nn.Module):
-    def __init__(self, res_layers=16, num_channels=35, contraction_factor=0.5,
+    def __init__(self, data_layers=16, num_channels=35, contraction_factor=0.5,
                  momentum=0.1, lat_layers=5, architecture='FPN'):
         super().__init__()
         self.avg_pool = nn.AvgPool2d(kernel_size=2)
         self._channels = num_channels
-        self._res_layers = res_layers
+        self._data_layers = data_layers
         self.gamma = contraction_factor
         self.leaky_relu = nn.LeakyReLU(0.1)
         self.relu = nn.ReLU()
         self.drop_outQ = nn.Dropout2d(1.5e-1)
         self.drop_outR = nn.Dropout2d(0.0)
         self.drop_outS = nn.Dropout(1.0e-1)
-        # self._lat_layers = lat_layers
+        self._lat_layers = lat_layers
         self.mom = momentum
-        in_chan = 35
+        self.depth = 0.0
+        # in_chan =  lambda i: 35
+        # out_chan = lambda i: num_channels if i == (2 * data_layers-1)
+        # else in_chan(i)
+
+        def in_chan(i):
+            return 35
 
         def out_chan(i):
-            if i == (2 * res_layers - 1):
+            if i == (2 * data_layers - 1):
                 return num_channels
             else:
                 return in_chan(i)
 
-        # out_chan = lambda i: num_channels if i == (2 * res_layers-1)
-        # else in_chan(i)
         self.pad = nn.ConstantPad2d(4, 0.449)
         self.label_fc = nn.Linear(25 * num_channels, 10, bias=False)
         self.architecture = architecture
-        self.depth = 0.0
 
         self.data_conv_d = nn.Conv2d(in_channels=3,
                                      out_channels=in_chan(0),
@@ -489,40 +492,40 @@ class CIFAR10_FPN(nn.Module):
                                      padding=(3, 3), padding_mode='replicate')
 
         self.data_convs = nn.ModuleList([nn.Sequential(
-                                         nn.Conv2d(in_channels=in_chan(i),
-                                                   out_channels=out_chan(i),
-                                                   kernel_size=3, stride=1,
-                                                   padding=(1, 1)),
-                                         self.leaky_relu,
-                                         self.drop_outQ,
-                                         nn.Conv2d(in_channels=out_chan(i),
-                                                   out_channels=out_chan(i),
-                                                   kernel_size=3, stride=1,
-                                                   padding=(1, 1)))
-                                         for i in range(2 * res_layers)])
+                            nn.Conv2d(in_channels=in_chan(i),
+                                      out_channels=out_chan(i),
+                                      kernel_size=3, stride=1,
+                                      padding=(1, 1)),
+                            self.leaky_relu,
+                            self.drop_outQ,
+                            nn.Conv2d(in_channels=out_chan(i),
+                                      out_channels=out_chan(i),
+                                      kernel_size=3, stride=1,
+                                      padding=(1, 1)))
+                            for i in range(2 * data_layers)])
 
         self.latent_convs = nn.ModuleList([nn.Sequential(
-                                           nn.Conv2d(in_channels=num_channels,
-                                                     out_channels=num_channels,
-                                                     kernel_size=3, stride=1,
-                                                     padding=(1, 1)),
-                                           self.leaky_relu,
-                                           self.drop_outR,
-                                           nn.Conv2d(in_channels=num_channels,
-                                                     out_channels=num_channels,
-                                                     kernel_size=3, stride=1,
-                                                     padding=(1, 1)))
-                                          for _ in range(res_layers)])
+                                nn.Conv2d(in_channels=num_channels,
+                                          out_channels=num_channels,
+                                          kernel_size=3, stride=1,
+                                          padding=(1, 1)),
+                                self.leaky_relu,
+                                self.drop_outR,
+                                nn.Conv2d(in_channels=num_channels,
+                                          out_channels=num_channels,
+                                          kernel_size=3, stride=1,
+                                          padding=(1, 1)))
+                                for _ in range(lat_layers)])
 
         self.dat_batch_norm = nn.ModuleList([nn.BatchNorm2d(out_chan(i),
                                                             momentum=self.mom,
                                                             affine=False)
-                                            for i in range(2 * res_layers)])
+                                            for i in range(2 * data_layers)])
 
         self.lat_batch_norm = nn.ModuleList([nn.BatchNorm2d(num_channels,
                                                             momentum=self.mom,
                                                             affine=False)
-                                            for _ in range(res_layers)])
+                                            for _ in range(lat_layers)])
         self.conv_y = nn.Conv2d(num_channels, num_channels,
                                 kernel_size=3, stride=2, padding=(1, 1))
 
@@ -562,7 +565,7 @@ class CIFAR10_FPN(nn.Module):
         for idx, leaky_conv in enumerate(self.data_convs):
             res = leaky_conv(u)
             u = self.dat_batch_norm[idx](self.leaky_relu(u + res))
-            down_sample = (idx+1) % (self._res_layers) == 0
+            down_sample = (idx+1) % (self._data_layers) == 0
             if down_sample:
                 u = self.avg_pool(u)
         return u

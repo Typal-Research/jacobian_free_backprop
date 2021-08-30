@@ -380,31 +380,30 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                 loss_ave += train_loss
 
                 # -------------------------------------------------------------
-                # compute rhs = dldu * J
+                # compute rhs = dldu * J^T
                 # -------------------------------------------------------------
+                
+                # dldu = dl/dS * dS/du
                 dldu = torch.autograd.grad(outputs=loss, inputs=Ru,
                                            retain_graph=True,
                                            create_graph=True,
                                            only_inputs=True)[0]
-                dldu = dldu.detach()  # dldu = dl/dS * dS/du
 
-                # Trick for computing J * (JTv):
-                #   Take derivative d(JTv)/dv * JTv = J * JTv
-                # compute dldu_JT:
-                dldu_dRduT = torch.autograd.grad(outputs=Ru, inputs=u,
-                                                 grad_outputs=dldu,
-                                                 retain_graph=True,
-                                                 create_graph=True,
-                                                 only_inputs=True)[0]
-                dldu_JT = dldu - dldu_dRduT
+                # compute dldu * J
+                dldu_dRdu = torch.autograd.grad(outputs=Ru, inputs=u,
+                                                grad_outputs=dldu,
+                                                retain_graph=True,
+                                                create_graph=True,
+                                                only_inputs=True)[0]
+                dldu_J = dldu - dldu_dRdu
 
-                # compute J * dldu: take derivative of d(JT*v)/v * v = J*v
-                dldu_J = torch.autograd.grad(outputs=dldu_JT, inputs=dldu,
-                                             grad_outputs=dldu,
-                                             retain_graph=True,
-                                             create_graph=True,
-                                             only_inputs=True)[0]
-                rhs = dldu_J
+                # autograd trick: d(v*J)/v * v = v * J^T
+                dldu_JT = torch.autograd.grad(outputs=dldu_J, inputs=dldu,
+                                              grad_outputs=dldu,
+                                              retain_graph=True,
+                                              create_graph=True,
+                                              only_inputs=True)[0]
+                rhs = dldu_JT
 
                 rhs = rhs.detach()
                 # vectorize channels (when R is a CNN)
@@ -412,15 +411,14 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                 # CG requires it to have dims: n_samples x n_features x n_rh
                 rhs = rhs.unsqueeze(2)  # unsqueeze for number of rhs.
                 # -------------------------------------------------------------
-                # Define JTJ matvec function
+                # Define JJT matvec function
                 # -------------------------------------------------------------
 
                 def v_JJT_matvec(v, u=u, Ru=Ru):
                     # inputs:
-                    # v = vector to be multiplied by
-                    #     U = I - alpha*DS - (1-alpha)*DT) requires grad
+                    # v = vector to be multiplied by JJT
                     # u = fixed point vector u
-                    #     (should be untracked and vectorized!) requires grad
+                    #   (should be untracked and vectorized) requires grad
                     # Ru = R applied to u (requires grad)
 
                     # assumes one rhs:
@@ -431,14 +429,7 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                     v.requires_grad = True
 
                     # compute v*J = v*(I - dRdu)
-                    # trick for computing J * (v):
-                    # # take take derivative d(JTv)/dv * v = J * v
-                    v_dRduT = torch.autograd.grad(outputs=Ru, inputs=u,
-                                                  grad_outputs=v,
-                                                  retain_graph=True,
-                                                  create_graph=True,
-                                                  only_inputs=True)[0]
-                    v_dRdu = torch.autograd.grad(outputs=v_dRduT, inputs=v,
+                    v_dRdu = torch.autograd.grad(outputs=Ru, inputs=u,
                                                  grad_outputs=v,
                                                  retain_graph=True,
                                                  create_graph=True,
@@ -459,13 +450,14 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                     Amv = Amv.unsqueeze(2).detach()
                     return Amv
 
-                JJTinv_rhs, info = cg_batch(v_JJT_matvec, rhs, M_bmm=None,
-                                            X0=None, rtol=0, atol=tol_cg,
-                                            maxiter=max_iter_cg, verbose=False)
+                normal_eq_sol, info = cg_batch(v_JJT_matvec, rhs, M_bmm=None,
+                                               X0=None, rtol=0, atol=tol_cg,
+                                               maxiter=max_iter_cg,
+                                               verbose=False)
                 # JTJinv_v has size (batch_size x n_hidden_features)
                 # n_rhs is squeezed
-                JJTinv_rhs = JJTinv_rhs.squeeze(2)
-                JJTinv_rhs = JJTinv_rhs.view(Ru.shape)
+                normal_eq_sol = normal_eq_sol.squeeze(2)
+                normal_eq_sol = normal_eq_sol.view(Ru.shape)
 
                 temp_n_Umatvecs += info['niter'] * train_batch_size
                 cg_iters += info['niter']
@@ -477,9 +469,9 @@ def train_Jacobian_based_net(net, max_epochs, lr_scheduler, train_loader,
                     # Ru = Ru.view(train_batch_size, -1)
                     # reshape in case Ru is a CNN
                     # computes
-                    # v_JTJinv_dRdTheta = dSdu * dldS * Jinv * dRdTheta
+                    # v_JJTinv_dRdTheta = dSdu * dldS * Jinv * dRdTheta
                     u.requires_grad = False
-                    Ru.backward(JJTinv_rhs)
+                    Ru.backward(normal_eq_sol)
 
                     S_Ru = net.map_latent_to_inference(Ru.detach())
                     loss = criterion(S_Ru, labels)
