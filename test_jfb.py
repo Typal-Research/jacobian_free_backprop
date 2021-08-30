@@ -1,5 +1,6 @@
 import torch
 
+
 def test_addition():
     assert 1 + 1 == 2
 
@@ -10,10 +11,7 @@ def v_JJT_matvec(v, u, Ru):
     # u = fixed point vector u (requires grad)
     # Ru = R applied to u (requires grad)
 
-    # assumes one rhs:
-    # x (n_samples, n_dim, n_rhs) -> (n_samples, n_dim)
-
-    v = v.view(Ru.shape)  # reshape to filter space
+    v = v.view(Ru.shape)
     v.requires_grad = True
 
     # compute v*J = v*(I - dRdu)
@@ -39,7 +37,7 @@ def v_JJT_matvec(v, u, Ru):
 
 def test_symmetry_of_Jacobians():
 
-    n_features = 100
+    n_features = 10
     u = torch.randn(1, n_features)
     u.requires_grad = True
     fc = torch.nn.Linear(n_features, n_features)
