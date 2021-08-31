@@ -155,10 +155,10 @@ def test_symmetry_of_Jacobians():
         JJT_mat[i, :] = v_JJT
 
     assert(torch.norm(JJT_mat - JJT_mat.transpose(1, 0)) < 1e-6)
+    print('--------- symmetry test passed! ---------')
 
 
 test_symmetry_of_Jacobians()
-print('--------- symmetry test passed! ---------')
 
 # ------------------------------------------------
 # test CG vs Explicit Backprop Error
@@ -169,7 +169,7 @@ def test_CG_Backprop():
     # compute gradient of networks using Jacobian-based backprop with CG
     # and explicit backprop through the fixed point
     device = 'cpu'
-    lat_features = 10
+    lat_features = 3
     T1 = test_net(lat_features)
     T2 = copy.deepcopy(T1)
 
@@ -294,9 +294,9 @@ test_CG_Backprop()
 print('--------- CG Backprop test passed! ---------')
 
 
-# # ------------------------------------------------
-# # test Neumann Gradient Error
-# # ------------------------------------------------
+# ------------------------------------------------
+# test Neumann Gradient Error
+# ------------------------------------------------
 
 
 # # XXX - Symmmetric Jacobian
