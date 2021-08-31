@@ -169,18 +169,18 @@ def test_CG_Backprop():
     # compute gradient of networks using Jacobian-based backprop with CG
     # and explicit backprop through the fixed point
     device = 'cpu'
-    lat_features = 3
+    lat_features = 2
     T1 = test_net(lat_features)
     T2 = copy.deepcopy(T1)
 
-    max_depth = int(1e4)
+    max_depth = int(1e2)
     eps = 1e-6
 
     # generate batch of data
     train_batch_size = 1
     train_loader, test_loader = mnist_loaders(
                                     train_batch_size=train_batch_size,
-                                    test_batch_size=10)
+                                    test_batch_size=1)
     (d, labels) = iter(train_loader).next()
 
     # forward propagate both networks
@@ -255,7 +255,7 @@ def test_CG_Backprop():
         return v_JJT_matvec(v, u, Ru)
 
     tol_cg = 1e-16
-    max_iter_cg = 100
+    max_iter_cg = 20
     normal_eq_sol, info = cg_batch(v_JJT_matvec_local,
                                    rhs, M_bmm=None,
                                    X0=None,
