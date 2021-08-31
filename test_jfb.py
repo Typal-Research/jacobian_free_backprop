@@ -169,7 +169,7 @@ def test_CG_Backprop():
     # compute gradient of networks using Jacobian-based backprop with CG
     # and explicit backprop through the fixed point
     device = 'cpu'
-    lat_features = 100
+    lat_features = 10
     T1 = test_net(lat_features)
     T2 = copy.deepcopy(T1)
 
