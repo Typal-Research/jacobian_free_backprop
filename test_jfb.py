@@ -158,41 +158,41 @@ def test_symmetry_of_Jacobians():
     print('--------- symmetry test passed! ---------')
 
 
-test_symmetry_of_Jacobians()
+# test_symmetry_of_Jacobians()
 
 # ------------------------------------------------
 # test CG solver
 # ------------------------------------------------
 
 
-def test_CG_solver():
-    n_samples = 2
-    n_rhs = 1
-    n_features = 5
-    A = torch.randn(n_features, n_features)
-    A = torch.transpose(A, 1, 0).matmul(A) + torch.eye(n_features)
-    x_true = torch.randn(n_samples, n_features, n_rhs)
-    B = torch.zeros(n_samples, n_features, n_rhs)
-    B = torch.matmul(A, x_true)
+# def test_CG_solver():
+#     n_samples = 2
+#     n_rhs = 1
+#     n_features = 5
+#     A = torch.randn(n_features, n_features)
+#     A = torch.transpose(A, 1, 0).matmul(A) + torch.eye(n_features)
+#     x_true = torch.randn(n_samples, n_features, n_rhs)
+#     B = torch.zeros(n_samples, n_features, n_rhs)
+#     B = torch.matmul(A, x_true)
 
-    def Abmm(x):
-        return torch.matmul(A, x)
+#     def Abmm(x):
+#         return torch.matmul(A, x)
 
-    x_cg, info = cg_batch(Abmm,
-                          B,
-                          M_bmm=None,
-                          X0=None,
-                          rtol=1e-6,
-                          atol=1e-6,
-                          maxiter=int(5000),
-                          verbose=True)
+#     x_cg, info = cg_batch(Abmm,
+#                           B,
+#                           M_bmm=None,
+#                           X0=None,
+#                           rtol=1e-6,
+#                           atol=1e-6,
+#                           maxiter=int(5000),
+#                           verbose=True)
 
-    assert(torch.norm(x_cg - x_true) < 1e-4)
-    assert(torch.norm(A.matmul(x_cg) - B) < 1e-4)
-    print('--------- CG solver test passed! ---------')
+#     assert(torch.norm(x_cg - x_true) < 1e-4)
+#     assert(torch.norm(A.matmul(x_cg) - B) < 1e-4)
+#     print('--------- CG solver test passed! ---------')
 
 
-test_CG_solver()
+# test_CG_solver()
 
 # ------------------------------------------------
 # test CG vs Explicit Backprop Error
