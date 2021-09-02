@@ -89,7 +89,7 @@ def normalize_lip_const(net, u: latent_variable, v: latent_variable):
     if not R_is_gamma_lip:
         violation_ratio = net.gamma * u_diff_norm / R_diff_norm
         normalize_factor = violation_ratio ** (1.0 / net._lat_layers)
-        print('normalizing...')
+        # print('normalizing...')
         for i in range(net._lat_layers):
             net.latent_convs[i][0].weight.data *= normalize_factor
             net.latent_convs[i][0].bias.data *= normalize_factor

@@ -161,137 +161,171 @@ def test_symmetry_of_Jacobians():
 test_symmetry_of_Jacobians()
 
 # ------------------------------------------------
+# test CG solver
+# ------------------------------------------------
+
+
+def test_CG_solver():
+    n_samples = 2
+    n_rhs = 1
+    n_features = 5
+    A = torch.randn(n_features, n_features)
+    A = torch.transpose(A, 1, 0).matmul(A) + torch.eye(n_features)
+    x_true = torch.randn(n_samples, n_features, n_rhs)
+    B = torch.zeros(n_samples, n_features, n_rhs)
+    B = torch.matmul(A, x_true)
+
+    def Abmm(x):
+        return torch.matmul(A, x)
+
+    x_cg, info = cg_batch(Abmm,
+                          B,
+                          M_bmm=None,
+                          X0=None,
+                          rtol=1e-6,
+                          atol=1e-6,
+                          maxiter=int(5000),
+                          verbose=True)
+
+    assert(torch.norm(x_cg - x_true) < 1e-4)
+    assert(torch.norm(A.matmul(x_cg) - B) < 1e-4)
+    print('--------- CG solver test passed! ---------')
+
+
+test_CG_solver()
+
+# ------------------------------------------------
 # test CG vs Explicit Backprop Error
 # ------------------------------------------------
 
 
-def test_CG_Backprop():
-    # compute gradient of networks using Jacobian-based backprop with CG
-    # and explicit backprop through the fixed point
-    device = 'cpu'
-    lat_features = 2
-    T1 = test_net(lat_features)
-    T2 = copy.deepcopy(T1)
+# def test_CG_Backprop():
+#     # compute gradient of networks using Jacobian-based backprop with CG
+#     # and explicit backprop through the fixed point
+#     device = 'cpu'
+#     lat_features = 2
+#     T1 = test_net(lat_features)
+#     T2 = copy.deepcopy(T1)
 
-    max_depth = int(1e2)
-    eps = 1e-6
+#     max_depth = int(1e2)
+#     eps = 1e-6
 
-    # generate batch of data
-    train_batch_size = 1
-    train_loader, test_loader = mnist_loaders(
-                                    train_batch_size=train_batch_size,
-                                    test_batch_size=1)
-    (d, labels) = iter(train_loader).next()
+#     # generate batch of data
+#     train_batch_size = 1
+#     train_loader, test_loader = mnist_loaders(
+#                                     train_batch_size=train_batch_size,
+#                                     test_batch_size=1)
+#     (d, labels) = iter(train_loader).next()
 
-    # forward propagate both networks
-    T1_output = T1(d, eps=eps, max_depth=max_depth)
-    Qd = T2.data_space_forward(d)
-    u_fixed_pt, depth = compute_fixed_point(T2,
-                                            Qd,
-                                            max_depth=max_depth,
-                                            eps=eps,
-                                            device=device)
+#     # forward propagate both networks
+#     T1_output = T1(d, eps=eps, max_depth=max_depth)
+#     Qd = T2.data_space_forward(d)
+#     u_fixed_pt, depth = compute_fixed_point(T2,
+#                                             Qd,
+#                                             max_depth=max_depth,
+#                                             eps=eps,
+#                                             device=device)
 
-    # evaluate once more
-    u_fixed_pt.requires_grad = True
-    Qd = T2.data_space_forward(d)
-    Ru = T2.latent_space_forward(u_fixed_pt, Qd.detach())
-    S_Ru = T2.map_latent_to_inference(Ru)
+#     # evaluate once more
+#     u_fixed_pt.requires_grad = True
+#     Qd = T2.data_space_forward(d)
+#     Ru = T2.latent_space_forward(u_fixed_pt, Qd.detach())
+#     S_Ru = T2.map_latent_to_inference(Ru)
 
-    # compute explicit gradient
-    criterion = nn.CrossEntropyLoss()
-    loss_explicit = criterion(T1_output, labels)
-    loss_explicit.backward()
-    explicit_grad_d = T1.fc_d.weight.grad
-    explicit_grad_u = T1.fc_latent.weight.grad
-    explicit_grad_y = T1.fc_y.weight.grad
+#     # compute explicit gradient
+#     criterion = nn.CrossEntropyLoss()
+#     loss_explicit = criterion(T1_output, labels)
+#     loss_explicit.backward()
+#     explicit_grad_d = T1.fc_d.weight.grad
+#     explicit_grad_u = T1.fc_latent.weight.grad
+#     explicit_grad_y = T1.fc_y.weight.grad
 
-    # compute implicit gradient
-    loss_implicit = criterion(S_Ru, labels)
+#     # compute implicit gradient
+#     loss_implicit = criterion(S_Ru, labels)
 
-    # compute rhs = J * dldu
-    dldu = torch.autograd.grad(outputs=loss_implicit,
-                               inputs=Ru,
-                               retain_graph=True,
-                               create_graph=True,
-                               only_inputs=True)[0]
+#     # compute rhs = J * dldu
+#     dldu = torch.autograd.grad(outputs=loss_implicit,
+#                                inputs=Ru,
+#                                retain_graph=True,
+#                                create_graph=True,
+#                                only_inputs=True)[0]
 
-    # compute rhs = J * dldu
-    dldu = torch.autograd.grad(outputs=loss_implicit, inputs=Ru,
-                               retain_graph=True,
-                               create_graph=True,
-                               only_inputs=True)[0]
+#     # compute rhs = J * dldu
+#     dldu = torch.autograd.grad(outputs=loss_implicit, inputs=Ru,
+#                                retain_graph=True,
+#                                create_graph=True,
+#                                only_inputs=True)[0]
 
-    # ------------------------------------------------
-    # trick for computing v*JT, use two autograds
-    # ------------------------------------------------
+#     # ------------------------------------------------
+#     # trick for computing v*JT, use two autograds
+#     # ------------------------------------------------
 
-    # compute dldu_JT:
-    dldu_dRdu = torch.autograd.grad(outputs=Ru,
-                                    inputs=u_fixed_pt,
-                                    grad_outputs=dldu,
-                                    retain_graph=True,
-                                    create_graph=True,
-                                    only_inputs=True)[0]
-    dldu_J = dldu - dldu_dRdu
+#     # compute dldu_JT:
+#     dldu_dRdu = torch.autograd.grad(outputs=Ru,
+#                                     inputs=u_fixed_pt,
+#                                     grad_outputs=dldu,
+#                                     retain_graph=True,
+#                                     create_graph=True,
+#                                     only_inputs=True)[0]
+#     dldu_J = dldu - dldu_dRdu
 
-    # compute J * dldu: take derivative of d(JT*v)/v * v = J*v
-    dldu_JT = torch.autograd.grad(outputs=dldu_J,
-                                  inputs=dldu,
-                                  grad_outputs=dldu,
-                                  retain_graph=True,
-                                  create_graph=True,
-                                  only_inputs=True)[0]
-    rhs = dldu_JT
+#     # compute J * dldu: take derivative of d(JT*v)/v * v = J*v
+#     dldu_JT = torch.autograd.grad(outputs=dldu_J,
+#                                   inputs=dldu,
+#                                   grad_outputs=dldu,
+#                                   retain_graph=True,
+#                                   create_graph=True,
+#                                   only_inputs=True)[0]
+#     rhs = dldu_JT
 
-    rhs = rhs.detach()
-    # vectorize channels (when R is a CNN)
-    rhs = rhs.view(train_batch_size, -1)
-    # unsqueeze for number of rhs.
-    # CG requires it to have dimensions n_samples x n_features x n_rh
-    rhs = rhs.unsqueeze(2)
+#     rhs = rhs.detach()
+#     # vectorize channels (when R is a CNN)
+#     rhs = rhs.view(train_batch_size, -1)
+#     # unsqueeze for number of rhs.
+#     # CG requires it to have dimensions n_samples x n_features x n_rh
+#     rhs = rhs.unsqueeze(2)
 
-    def v_JJT_matvec_local(v, u=u_fixed_pt, Ru=Ru):
-        return v_JJT_matvec(v, u, Ru)
+#     def v_JJT_matvec_local(v, u=u_fixed_pt, Ru=Ru):
+#         return v_JJT_matvec(v, u, Ru)
 
-    tol_cg = 1e-16
-    max_iter_cg = 20
-    normal_eq_sol, info = cg_batch(v_JJT_matvec_local,
-                                   rhs, M_bmm=None,
-                                   X0=None,
-                                   rtol=tol_cg,
-                                   atol=tol_cg,
-                                   maxiter=max_iter_cg,
-                                   verbose=False)
-    # want normal_eq_sol to have size (batch_size x n_hidden_features)
-    # so squeeze last dimension
-    normal_eq_sol = normal_eq_sol.squeeze(2)
-    normal_eq_sol = normal_eq_sol.view(Ru.shape)
+#     tol_cg = 1e-16
+#     max_iter_cg = 20
+#     normal_eq_sol, info = cg_batch(v_JJT_matvec_local,
+#                                    rhs, M_bmm=None,
+#                                    X0=None,
+#                                    rtol=tol_cg,
+#                                    atol=tol_cg,
+#                                    maxiter=max_iter_cg,
+#                                    verbose=False)
+#     # want normal_eq_sol to have size (batch_size x n_hidden_features)
+#     # so squeeze last dimension
+#     normal_eq_sol = normal_eq_sol.squeeze(2)
+#     normal_eq_sol = normal_eq_sol.view(Ru.shape)
 
-    # compute implicit Q and R gradients
-    Qd = T2.data_space_forward(d)
-    Ru = T2.latent_space_forward(u_fixed_pt, Qd)
-    Ru.backward(normal_eq_sol)
+#     # compute implicit Q and R gradients
+#     Qd = T2.data_space_forward(d)
+#     Ru = T2.latent_space_forward(u_fixed_pt, Qd)
+#     Ru.backward(normal_eq_sol)
 
-    # compute implicit S gradient
-    S_Ru = T2.map_latent_to_inference(Ru.detach())
-    loss_implicit = criterion(S_Ru, labels)
-    loss_implicit.backward()
+#     # compute implicit S gradient
+#     S_Ru = T2.map_latent_to_inference(Ru.detach())
+#     loss_implicit = criterion(S_Ru, labels)
+#     loss_implicit.backward()
 
-    implicit_grad_d = T2.fc_d.weight.grad
-    implicit_grad_u = T2.fc_latent.weight.grad
-    implicit_grad_y = T2.fc_y.weight.grad
+#     implicit_grad_d = T2.fc_d.weight.grad
+#     implicit_grad_u = T2.fc_latent.weight.grad
+#     implicit_grad_y = T2.fc_y.weight.grad
 
-    assert(torch.norm(implicit_grad_d - explicit_grad_d) /
-           torch.norm(explicit_grad_d) < 1e-5)
-    assert(torch.norm(implicit_grad_u - explicit_grad_u) /
-           torch.norm(explicit_grad_u) < 1e-5)
-    assert(torch.norm(implicit_grad_y - explicit_grad_y) /
-           torch.norm(explicit_grad_y) < 1e-5)
+#     assert(torch.norm(implicit_grad_d - explicit_grad_d) /
+#            torch.norm(explicit_grad_d) < 1e-5)
+#     assert(torch.norm(implicit_grad_u - explicit_grad_u) /
+#            torch.norm(explicit_grad_u) < 1e-5)
+#     assert(torch.norm(implicit_grad_y - explicit_grad_y) /
+#            torch.norm(explicit_grad_y) < 1e-5)
 
 
-test_CG_Backprop()
-print('--------- CG Backprop test passed! ---------')
+# test_CG_Backprop()
+# print('--------- CG Backprop test passed! ---------')
 
 
 # ------------------------------------------------
