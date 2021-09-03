@@ -158,6 +158,43 @@ def test_symmetry_of_Jacobians():
     print('--------- symmetry test passed! ---------')
 
 
+def test_Neumann_approximation():
+    n_features = 3
+    A = torch.randn(n_features, n_features)/10
+    Id = torch.eye(n_features, n_features)
+    J = Id - A
+    x = torch.randn(3)
+    x.requires_grad = True
+
+    y = A.matmul(x)
+    dldu = torch.randn(3)
+
+    true_sol = dldu.matmul(torch.inverse(J))
+
+    dldu_Jinv_approx = dldu
+    dldu_dfdx_k = dldu.clone().detach()
+    neumann_order=50
+
+    # Approximate Jacobian inverse with Neumann series
+    # expansion up to neumann_order terms
+    for i in range(1, neumann_order):
+        dldu_dfdx_k.requires_grad = True
+        # compute dldu_dfdx_k * dfdx = dldu_dfdx_k+1
+        dfdu_kplus1 = torch.autograd.grad(outputs=y,
+                                          inputs = x,
+                                          grad_outputs=dldu_dfdx_k,
+                                          retain_graph=True,
+                                          create_graph = True,
+                                          only_inputs=True)[0]
+
+        dldu_Jinv_approx = dldu_Jinv_approx + dfdu_kplus1.detach()
+
+        dldu_dfdx_k = dfdu_kplus1.detach()
+
+    assert(torch.norm(dldu_Jinv_approx - true_sol) < 1e-6)
+    print('---- Neumann test passed! ----')
+
+
 # test_symmetry_of_Jacobians()
 
 # ------------------------------------------------
