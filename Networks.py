@@ -39,7 +39,8 @@ def forward_implicit(net, d: image, eps=1.0e-3, max_depth=100,
     attach_gradients = net.training
     if attach_gradients:
         Qd = net.data_space_forward(d)
-        return net.map_latent_to_inference(net.latent_space_forward(u, Qd))
+        return net.map_latent_to_inference(
+            net.latent_space_forward(u.detach(), Qd))
     else:
         return net.map_latent_to_inference(u).detach()
 

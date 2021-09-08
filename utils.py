@@ -4,7 +4,6 @@ from time import sleep
 import time
 from tqdm import tqdm
 import torchvision.transforms as transforms
-# from torch.utils.data import Dataset, TensorDataset, DataLoader
 from torchvision import datasets
 import numpy as np
 from BatchCG import cg_batch
@@ -653,38 +652,31 @@ def train_Neumann_FPN_net(net, max_epochs, lr_scheduler, train_loader,
                                                 only_inputs=True)[0]
                 dldS_dSdu = dldS_dSdu.detach()  # dldu = dS/du * dl/dS
 
-                dldS_dSdu_Jinv = dldS_dSdu.clone().detach()
-                v_dRdu_k = dldS_dSdu.clone().detach()
+                dldS_dSdu_Jinv_approx = dldS_dSdu.clone().detach()
+                dldS_dSdu_dRdu_k = dldS_dSdu.clone().detach()
 
                 # Approximate Jacobian inverse with Neumann series expansion
                 # up to neumann_order terms
                 for i in range(1, neumann_order+1):
-                    # trick for computing dRdu * v
-                    # compute dRdu^T * v, then
-                    # dRdu * v = d( dRdu^T * v )/dv * v
-                    v = v_dRdu_k.clone()
-                    v.requires_grad = True
-                    v_dRdu = torch.autograd.grad(outputs=Ru,
-                                                 inputs=u,
-                                                 grad_outputs=v,
-                                                 retain_graph=True,
-                                                 create_graph=True,
-                                                 only_inputs=True)[0]
-                    v_dRdu_k = torch.autograd.grad(outputs=v_dRdu, inputs=v,
-                                                   grad_outputs=v.detach(),
-                                                   retain_graph=True,
-                                                   create_graph=True,
-                                                   only_inputs=True)[0]
-                    v_dRdu_k = v_dRdu_k.detach()
-                    dldS_dSdu_Jinv = dldS_dSdu_Jinv + v_dRdu_k.detach()
 
-                temp_n_Umatvecs += int(neumann_order*(neumann_order+1)/2)
+                    dldS_dSdu_dRdu_k.requires_grad = True
 
-                Ru.backward(dldS_dSdu_Jinv)
+                    # compute dldu_dRdu_k * dRdu = dldu_dRdu_k+1
+                    dldS_dSdu_dRdu_kplus1 = torch.autograd.grad(
+                                            outputs=Ru,
+                                            inputs=u,
+                                            grad_outputs=dldS_dSdu_dRdu_k,
+                                            retain_graph=True,
+                                            create_graph=True,
+                                            only_inputs=True)[0]
 
-                # compute dl/dS * dS/dTheta
-                # Qd = net.data_space_forward(d)
-                Ru = net.latent_space_forward(u, Qd)
+                    dldS_dSdu_Jinv_approx = dldS_dSdu_Jinv_approx + dldS_dSdu_dRdu_kplus1.detach()
+
+                    dldS_dSdu_dRdu_k = dldS_dSdu_dRdu_kplus1.detach()
+
+                    temp_n_Umatvecs += int(neumann_order*(neumann_order+1)/2)
+                Ru.backward(dldS_dSdu_Jinv_approx)
+
                 S_Ru = net.map_latent_to_inference(Ru.detach())
                 loss = criterion(S_Ru, labels)
                 loss.backward()
@@ -713,9 +705,6 @@ def train_Neumann_FPN_net(net, max_epochs, lr_scheduler, train_loader,
         # compute test loss and accuracy
         test_loss, test_acc, correct = get_stats(net, test_loader, criterion,
                                                  10, eps, max_depth)
-        # test_loss, test_acc, correct = get_stats_Jacobian(net, test_loader,
-        #                                                   criterion, eps,
-        #                                                   max_depth)
 
         end_time_epoch = time.time()
         time_epoch = end_time_epoch - start_time_epoch

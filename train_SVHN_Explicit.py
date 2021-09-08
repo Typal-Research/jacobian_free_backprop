@@ -4,7 +4,7 @@ import torch.optim as optim
 from Networks import SVHN_FPN, BasicBlock
 from utils import svhn_loaders, train_class_net
 
-device = 'cuda:0'
+device = 'cuda:1'
 print('device = ', device)
 
 seed = 987
@@ -16,12 +16,12 @@ save_dir = './results/'
 # -----------------------------------------------------------------------------
 num_blocks = [1, 1, 1]
 contraction_factor = 0.9
-res_layers = 1
-T = SVHN_FPN(res_layers=res_layers, num_channels=64,
+lat_layers = 1
+T = SVHN_FPN(lat_layers=lat_layers, num_channels=64,
              contraction_factor=contraction_factor, block=BasicBlock,
              num_blocks=num_blocks, architecture='Explicit').to(device)
 num_classes = 10
-eps = 1.0e-2
+eps = 1.0e-4
 max_depth = 500
 
 # -----------------------------------------------------------------------------
