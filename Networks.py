@@ -10,7 +10,7 @@ image = torch.tensor
 
 def forward_implicit(net, d: image, eps=1.0e-3, max_depth=100,
                      depth_warning=False):
-    ''' FPN forward prop
+    ''' Fixed Point Iteration forward prop
 
         With gradients detached, find fixed point. During forward iteration,
         u is updated via R(u,Q(d)) and Lipschitz constant estimates are
@@ -90,7 +90,6 @@ def normalize_lip_const(net, u: latent_variable, v: latent_variable):
     if not R_is_gamma_lip:
         violation_ratio = net.gamma * u_diff_norm / R_diff_norm
         normalize_factor = violation_ratio ** (1.0 / net._lat_layers)
-        # print('normalizing...')
         for i in range(net._lat_layers):
             net.latent_convs[i][0].weight.data *= normalize_factor
             net.latent_convs[i][0].bias.data *= normalize_factor
@@ -470,9 +469,6 @@ class CIFAR10_FPN(nn.Module):
         self._lat_layers = lat_layers
         self.mom = momentum
         self.depth = 0.0
-        # in_chan =  lambda i: 35
-        # out_chan = lambda i: num_channels if i == (2 * data_layers-1)
-        # else in_chan(i)
 
         def in_chan(i):
             return 35
