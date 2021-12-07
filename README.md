@@ -6,11 +6,12 @@
 
 _JFB: Jacobian-Free Backpropagation for Implicit Models_ (**[arXiv Link](https://arxiv.org/pdf/2103.12803.pdf)**)
 
-    @article{WuFung2020JFB,
+    @article{WuFung2022JFB,
         title={JFB: Jacobian-Free Backpropagation for Implicit Models},
         author={Fung, Samy Wu and Heaton, Howard and Li, Qiuwei and McKenzie, Daniel and Osher, Stanley and Yin, Wotao},
-        journal={arXiv preprint arXiv:2103.12803},
-        year={2021}
+        journal={Proceedings of the AAAI Conference on Artificial Intelligence},
+        year={2022}
+	}
 
 
 ## Set-up
